@@ -13,9 +13,11 @@ os.environ['PYTHONUNBUFFERED'] = '1'  # 禁用Python输出缓冲，确保日志�
 import subprocess
 import time
 import threading
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from queue import Queue
-from flask import Flask, render_template, request, jsonify, Response
+from typing import Any, Dict, List, Optional
+from flask import Flask, render_template, request, jsonify, Response, send_file
 from flask_socketio import SocketIO, emit
 import atexit
 import requests
@@ -23,6 +25,8 @@ from loguru import logger
 import importlib
 from pathlib import Path
 from MindSpider.main import MindSpider
+from MindSpider.DeepSentimentCrawling.platform_crawler import PlatformCrawler
+from utils.openai_compat import probe_model_access
 
 # 导入ReportEngine
 try:
@@ -104,6 +108,9 @@ CONFIG_KEYS = [
     'REPORT_ENGINE_API_KEY',
     'REPORT_ENGINE_BASE_URL',
     'REPORT_ENGINE_MODEL_NAME',
+    'MINDSPIDER_API_KEY',
+    'MINDSPIDER_BASE_URL',
+    'MINDSPIDER_MODEL_NAME',
     'FORUM_HOST_API_KEY',
     'FORUM_HOST_BASE_URL',
     'FORUM_HOST_MODEL_NAME',
@@ -244,6 +251,654 @@ def _get_system_state():
     """Return a shallow copy of the system state flags."""
     with system_state_lock:
         return system_state.copy()
+
+
+CRAWLER_TASK_LOCK = threading.Lock()
+CRAWLER_TASKS: Dict[str, Dict[str, Any]] = {}
+ACTIVE_CRAWLER_TASK_ID: Optional[str] = None
+LATEST_CRAWLER_TASK_ID: Optional[str] = None
+MAX_CRAWLER_LOG_LINES = 300
+CRAWLER_PLATFORM_ALIASES = {
+    "xhs": "xhs",
+    "xiaohongshu": "xhs",
+    "rednote": "xhs",
+    "dy": "dy",
+    "douyin": "dy",
+    "ks": "ks",
+    "kuaishou": "ks",
+    "bili": "bili",
+    "bilibili": "bili",
+    "wb": "wb",
+    "weibo": "wb",
+    "zhihu": "zhihu",
+    "tieba": "tieba",
+}
+RAW_SEARCH_DB_LOCK = threading.Lock()
+RAW_SEARCH_DB = None
+RAW_SEARCH_PLATFORM_ALIASES = {
+    "all": "all",
+    "xhs": "xhs",
+    "xiaohongshu": "xhs",
+    "rednote": "xhs",
+    "dy": "douyin",
+    "douyin": "douyin",
+    "ks": "kuaishou",
+    "kuaishou": "kuaishou",
+    "bili": "bilibili",
+    "bilibili": "bilibili",
+    "wb": "weibo",
+    "weibo": "weibo",
+    "zhihu": "zhihu",
+    "tieba": "tieba",
+}
+RAW_SEARCH_PLATFORM_KEYS = {
+    "xhs": "xhs",
+    "douyin": "dy",
+    "kuaishou": "ks",
+    "bilibili": "bili",
+    "weibo": "wb",
+    "zhihu": "zhihu",
+    "tieba": "tieba",
+}
+RAW_SEARCH_PLATFORM_LABELS = {
+    "all": "全部平台",
+    "xhs": "小红书",
+    "dy": "抖音",
+    "ks": "快手",
+    "bili": "B站",
+    "wb": "微博",
+    "zhihu": "知乎",
+    "tieba": "贴吧",
+}
+RAW_SEARCH_SORT_LABELS = {
+    "latest": "按最新",
+    "hot": "按热度",
+}
+RAW_SEARCH_TIME_RANGE_LABELS = {
+    "all": "不限时间",
+    "24h": "最近24小时",
+    "7d": "最近7天",
+    "30d": "最近30天",
+}
+
+
+def _crawl_now() -> str:
+    return datetime.now().isoformat()
+
+
+def _normalize_search_platform(platform: Any) -> str:
+    normalized = str(platform or "all").strip().lower()
+    return RAW_SEARCH_PLATFORM_ALIASES.get(normalized, "all")
+
+
+def _normalize_search_sort(sort_by: Any) -> str:
+    normalized = str(sort_by or "latest").strip().lower()
+    return normalized if normalized in {"latest", "hot"} else "latest"
+
+
+def _normalize_search_time_range(time_range: Any) -> str:
+    normalized = str(time_range or "all").strip().lower()
+    return normalized if normalized in RAW_SEARCH_TIME_RANGE_LABELS else "all"
+
+
+def _normalize_result_platform(platform: Any) -> str:
+    normalized = str(platform or "").strip().lower()
+    return RAW_SEARCH_PLATFORM_KEYS.get(normalized, normalized)
+
+
+def _resolve_search_time_window(time_range: str) -> Dict[str, Optional[Any]]:
+    now = datetime.now()
+    if time_range == "24h":
+        start_dt = now - timedelta(hours=24)
+    elif time_range == "7d":
+        start_dt = now - timedelta(days=7)
+    elif time_range == "30d":
+        start_dt = now - timedelta(days=30)
+    else:
+        return {
+            "start_dt": None,
+            "end_dt": now,
+            "start_date": None,
+            "end_date": None,
+        }
+    return {
+        "start_dt": start_dt,
+        "end_dt": now,
+        "start_date": start_dt.strftime("%Y-%m-%d"),
+        "end_date": now.strftime("%Y-%m-%d"),
+    }
+
+
+def _get_raw_search_db():
+    global RAW_SEARCH_DB
+    if RAW_SEARCH_DB is None:
+        with RAW_SEARCH_DB_LOCK:
+            if RAW_SEARCH_DB is None:
+                from InsightEngine.tools.search import MediaCrawlerDB
+                RAW_SEARCH_DB = MediaCrawlerDB()
+    return RAW_SEARCH_DB
+
+
+def _calculate_result_hotness(result: Any) -> float:
+    engagement = getattr(result, "engagement", {}) or {}
+    return (
+        float(engagement.get("likes", 0)) * 1.0
+        + float(engagement.get("comments", 0)) * 5.0
+        + float(engagement.get("shares", 0)) * 10.0
+        + float(engagement.get("favorites", 0)) * 10.0
+        + float(engagement.get("coins", 0)) * 10.0
+        + float(engagement.get("danmaku", 0)) * 0.5
+        + float(engagement.get("views", 0)) * 0.1
+    )
+
+
+def _keep_primary_content_results(results: List[Any]) -> List[Any]:
+    filtered = []
+    for item in results:
+        if getattr(item, "content_type", "") == "comment":
+            continue
+        if not str(getattr(item, "title_or_content", "") or "").strip():
+            continue
+        filtered.append(item)
+    return filtered
+
+
+def _filter_results_by_time_window(results: List[Any], start_dt: Optional[datetime], end_dt: Optional[datetime]) -> List[Any]:
+    if start_dt is None or end_dt is None:
+        return list(results)
+    filtered = []
+    for item in results:
+        publish_time = getattr(item, "publish_time", None)
+        if publish_time and start_dt <= publish_time < end_dt:
+            filtered.append(item)
+    return filtered
+
+
+def _dedupe_search_results(results: List[Any]) -> List[Any]:
+    deduped: List[Any] = []
+    seen = set()
+    for item in results:
+        publish_time = getattr(item, "publish_time", None)
+        content = " ".join(str(getattr(item, "title_or_content", "") or "").split())
+        key = (
+            str(getattr(item, "url", "") or ""),
+            str(getattr(item, "source_table", "") or ""),
+            content[:160],
+            str(getattr(item, "author_nickname", "") or ""),
+            publish_time.isoformat() if publish_time else "",
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def _sort_search_results(results: List[Any], sort_by: str) -> List[Any]:
+    if sort_by == "hot":
+        return sorted(
+            results,
+            key=lambda item: (
+                _calculate_result_hotness(item),
+                getattr(item, "publish_time", None) or datetime.min,
+            ),
+            reverse=True,
+        )
+    return sorted(
+        results,
+        key=lambda item: (
+            getattr(item, "publish_time", None) or datetime.min,
+            _calculate_result_hotness(item),
+        ),
+        reverse=True,
+    )
+
+
+def _serialize_search_result(result: Any) -> Dict[str, Any]:
+    platform_key = _normalize_result_platform(getattr(result, "platform", ""))
+    publish_time = getattr(result, "publish_time", None)
+    raw_text = " ".join(str(getattr(result, "title_or_content", "") or "").split())
+    return {
+        "platform": platform_key,
+        "platform_label": RAW_SEARCH_PLATFORM_LABELS.get(platform_key, platform_key or "未知平台"),
+        "content_type": getattr(result, "content_type", "") or "content",
+        "title_or_content": raw_text,
+        "preview": raw_text if len(raw_text) <= 280 else f"{raw_text[:277]}...",
+        "author_nickname": getattr(result, "author_nickname", None),
+        "url": getattr(result, "url", None),
+        "publish_time": publish_time.isoformat() if publish_time else "",
+        "publish_time_display": publish_time.strftime("%Y-%m-%d %H:%M:%S") if publish_time else "未知时间",
+        "engagement": dict(getattr(result, "engagement", {}) or {}),
+        "source_keyword": getattr(result, "source_keyword", None),
+        "source_table": getattr(result, "source_table", "") or "",
+        "hotness_score": round(_calculate_result_hotness(result), 2),
+    }
+
+
+def _search_raw_posts(query: str, platform: str, time_range: str, sort_by: str, limit: int) -> Dict[str, Any]:
+    db = _get_raw_search_db()
+    time_window = _resolve_search_time_window(time_range)
+    start_dt = time_window["start_dt"]
+    end_dt = time_window["end_dt"]
+    platforms = (
+        [platform]
+        if platform != "all"
+        else ["xhs", "douyin", "kuaishou", "bilibili", "weibo", "zhihu", "tieba"]
+    )
+    per_platform_limit = min(max(limit * 3, 30), 80)
+
+    merged_results: List[Any] = []
+    partial_errors: List[str] = []
+    for current_platform in platforms:
+        response = db.search_topic_on_platform(
+            platform=current_platform,
+            topic=query,
+            start_date=time_window["start_date"],
+            end_date=time_window["end_date"],
+            limit=per_platform_limit,
+        )
+        if response.error_message:
+            partial_errors.append(f"{current_platform}: {response.error_message}")
+            continue
+        merged_results.extend(_keep_primary_content_results(response.results))
+
+    merged_results = _filter_results_by_time_window(merged_results, start_dt, end_dt)
+    merged_results = _dedupe_search_results(merged_results)
+    merged_results = _sort_search_results(merged_results, sort_by)
+    total_matches = len(merged_results)
+    merged_results = merged_results[:limit]
+
+    platform_breakdown: Dict[str, int] = {}
+    for item in merged_results:
+        key = _normalize_result_platform(getattr(item, "platform", ""))
+        platform_breakdown[key] = platform_breakdown.get(key, 0) + 1
+
+    return {
+        "query": query,
+        "filters": {
+            "platform": "all" if platform == "all" else _normalize_result_platform(platform),
+            "platform_label": RAW_SEARCH_PLATFORM_LABELS.get(
+                "all" if platform == "all" else _normalize_result_platform(platform),
+                platform,
+            ),
+            "time_range": time_range,
+            "time_range_label": RAW_SEARCH_TIME_RANGE_LABELS.get(time_range, "不限时间"),
+            "sort_by": sort_by,
+            "sort_label": RAW_SEARCH_SORT_LABELS.get(sort_by, "按最新"),
+            "limit": limit,
+            "start_time": start_dt.isoformat() if start_dt else "",
+            "end_time": end_dt.isoformat() if end_dt else "",
+        },
+        "total_matches": total_matches,
+        "returned_count": len(merged_results),
+        "platform_breakdown": platform_breakdown,
+        "partial_errors": partial_errors,
+        "results": [_serialize_search_result(item) for item in merged_results],
+        "searched_at": datetime.now().isoformat(),
+    }
+
+
+def _get_crawler_qrcode_path() -> Path:
+    env_path = os.getenv("MEDIACRAWLER_QRCODE_PATH")
+    candidates: List[Path] = []
+    if env_path:
+        candidates.append(Path(env_path))
+
+    candidates.extend([
+        Path.cwd() / "MindSpider" / "DeepSentimentCrawling" / "MediaCrawler" / "browser_data" / "login_qrcode.png",
+        Path("/app/MindSpider/DeepSentimentCrawling/MediaCrawler/browser_data/login_qrcode.png"),
+        Path.cwd() / "crawler_browser_data" / "login_qrcode.png",
+    ])
+
+    for path in candidates:
+        if path.parent.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            return path
+
+    fallback = candidates[0]
+    fallback.parent.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+def _parse_keywords(raw_keywords: Any) -> List[str]:
+    if isinstance(raw_keywords, list):
+        source_items = raw_keywords
+    else:
+        source_items = [raw_keywords or ""]
+
+    keywords: List[str] = []
+    seen = set()
+    for item in source_items:
+        text = str(item or "")
+        normalized = (
+            text.replace("，", ",")
+            .replace("；", ";")
+            .replace("\r", "\n")
+            .replace("\t", "\n")
+        )
+        for block in normalized.split("\n"):
+            for chunk in block.replace(";", ",").split(","):
+                keyword = chunk.strip()
+                if keyword and keyword not in seen:
+                    seen.add(keyword)
+                    keywords.append(keyword)
+    return keywords
+
+
+def _normalize_crawler_platform(platform: Any) -> str:
+    normalized = str(platform or "xhs").strip().lower()
+    return CRAWLER_PLATFORM_ALIASES.get(normalized, normalized)
+
+
+def _copy_crawler_task(task: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if task is None:
+        return None
+    copied = dict(task)
+    copied["logs"] = list(task.get("logs", []))
+    copied["keywords"] = list(task.get("keywords", []))
+    if task.get("result") is not None:
+        copied["result"] = dict(task["result"])
+    return copied
+
+
+def _set_active_crawler_task(task_id: Optional[str]) -> None:
+    global ACTIVE_CRAWLER_TASK_ID, LATEST_CRAWLER_TASK_ID
+    with CRAWLER_TASK_LOCK:
+        ACTIVE_CRAWLER_TASK_ID = task_id
+        if task_id:
+            LATEST_CRAWLER_TASK_ID = task_id
+
+
+def _append_crawler_log(task_id: str, message: str) -> None:
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    line = f"[{timestamp}] {message}"
+    logger.info(f"[CrawlerTask:{task_id}] {message}")
+    with CRAWLER_TASK_LOCK:
+        task = CRAWLER_TASKS.get(task_id)
+        if not task:
+            return
+        task.setdefault("logs", []).append(line)
+        if len(task["logs"]) > MAX_CRAWLER_LOG_LINES:
+            task["logs"] = task["logs"][-MAX_CRAWLER_LOG_LINES:]
+        task["updated_at"] = _crawl_now()
+
+
+def _update_crawler_task(task_id: str, **updates: Any) -> None:
+    with CRAWLER_TASK_LOCK:
+        task = CRAWLER_TASKS.get(task_id)
+        if not task:
+            return
+        task.update(updates)
+        task["updated_at"] = _crawl_now()
+
+
+def _get_crawler_task(task_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    with CRAWLER_TASK_LOCK:
+        if task_id:
+            return _copy_crawler_task(CRAWLER_TASKS.get(task_id))
+        if ACTIVE_CRAWLER_TASK_ID and ACTIVE_CRAWLER_TASK_ID in CRAWLER_TASKS:
+            return _copy_crawler_task(CRAWLER_TASKS.get(ACTIVE_CRAWLER_TASK_ID))
+        if LATEST_CRAWLER_TASK_ID and LATEST_CRAWLER_TASK_ID in CRAWLER_TASKS:
+            return _copy_crawler_task(CRAWLER_TASKS.get(LATEST_CRAWLER_TASK_ID))
+        return None
+
+
+def _mark_crawler_waiting_login(task_id: str) -> None:
+    qrcode_path = _get_crawler_qrcode_path()
+    _update_crawler_task(
+        task_id,
+        status="waiting_login",
+        status_message="已生成登录二维码，请扫码后等待任务继续",
+        qr_code_available=qrcode_path.exists(),
+        qr_code_url="/api/crawl/qrcode",
+    )
+
+
+def _watch_crawler_qrcode(task_id: str, stop_event: threading.Event) -> None:
+    qrcode_path = _get_crawler_qrcode_path()
+    seen_qrcode = False
+    while not stop_event.is_set():
+        exists = qrcode_path.exists()
+        if exists and not seen_qrcode:
+            seen_qrcode = True
+            _append_crawler_log(task_id, f"检测到登录二维码: {qrcode_path}")
+            _mark_crawler_waiting_login(task_id)
+        time.sleep(1)
+
+
+def _update_crawler_task_from_output(task_id: str, line: str) -> None:
+    lower_line = line.lower()
+    if "qrcode" in lower_line and ("saved" in lower_line or "scan" in lower_line):
+        _mark_crawler_waiting_login(task_id)
+        return
+
+    progress_markers = (
+        "login success",
+        "登录成功",
+        "start search",
+        "开始搜索",
+        "开始爬取",
+        "search keyword",
+    )
+    task = _get_crawler_task(task_id)
+    if task and task.get("status") == "waiting_login" and any(marker in lower_line for marker in progress_markers):
+        _update_crawler_task(
+            task_id,
+            status="running",
+            status_message="扫码完成，任务继续执行中",
+        )
+
+
+def _build_crawler_result(
+    crawler: PlatformCrawler,
+    platform: str,
+    keywords: List[str],
+    max_notes: int,
+    start_time: datetime,
+    return_code: int,
+    output_lines: List[str],
+) -> Dict[str, Any]:
+    duration = (datetime.now() - start_time).total_seconds()
+    parsed_stats = crawler._parse_crawl_output(output_lines, [])
+    return {
+        "platform": platform,
+        "keywords": keywords,
+        "keywords_count": len(keywords),
+        "max_notes": max_notes,
+        "duration_seconds": round(duration, 2),
+        "return_code": return_code,
+        "success": return_code == 0,
+        "notes_count": parsed_stats.get("notes_count", 0),
+        "comments_count": parsed_stats.get("comments_count", 0),
+        "errors_count": parsed_stats.get("errors_count", 0),
+        "login_required": parsed_stats.get("login_required", False),
+    }
+
+
+def _run_crawler_task(task_id: str) -> None:
+    task = _get_crawler_task(task_id)
+    if not task:
+        return
+
+    platform = task["platform"]
+    keywords = task["keywords"]
+    max_notes = int(task["max_notes"])
+    login_type = task["login_type"]
+    qrcode_path = _get_crawler_qrcode_path()
+    stop_event = threading.Event()
+    watcher = threading.Thread(target=_watch_crawler_qrcode, args=(task_id, stop_event), daemon=True)
+    watcher.start()
+
+    process: Optional[subprocess.Popen] = None
+    output_lines: List[str] = []
+    start_time = datetime.now()
+
+    try:
+        if qrcode_path.exists():
+            qrcode_path.unlink()
+
+        crawler = PlatformCrawler()
+        _update_crawler_task(
+            task_id,
+            status="running",
+            status_message="正在初始化爬虫任务",
+            started_at=_crawl_now(),
+            qr_code_available=False,
+            qr_code_url="/api/crawl/qrcode",
+        )
+        _append_crawler_log(task_id, f"开始执行平台 `{platform}` 的采集任务")
+
+        if not crawler.configure_mediacrawler_db():
+            raise RuntimeError("MediaCrawler 数据库配置失败")
+        _append_crawler_log(task_id, "数据库配置已同步")
+
+        if not crawler.create_base_config(platform, keywords, "search", max_notes):
+            raise RuntimeError("MediaCrawler 基础配置生成失败")
+        _append_crawler_log(task_id, f"关键词已写入配置: {', '.join(keywords)}")
+
+        from config import reload_settings, settings
+
+        reload_settings()
+        db_dialect = (settings.DB_DIALECT or "mysql").lower()
+        save_data_option = "postgres" if db_dialect in ("postgresql", "postgres") else "db"
+
+        cmd = [
+            sys.executable,
+            "main.py",
+            "--platform",
+            platform,
+            "--lt",
+            login_type,
+            "--type",
+            "search",
+            "--save_data_option",
+            save_data_option,
+        ]
+
+        env = os.environ.copy()
+        env.update({
+            "PYTHONUNBUFFERED": "1",
+            "PYTHONIOENCODING": "utf-8",
+            "PYTHONUTF8": "1",
+            "MEDIACRAWLER_QRCODE_PATH": str(qrcode_path),
+        })
+
+        _append_crawler_log(task_id, "爬虫子进程已启动，正在等待平台响应")
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(crawler.mediacrawler_path),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            env=env,
+        )
+
+        assert process.stdout is not None
+        for raw_line in iter(process.stdout.readline, ""):
+            line = raw_line.strip()
+            if not line:
+                continue
+            output_lines.append(line)
+            _append_crawler_log(task_id, line)
+            _update_crawler_task_from_output(task_id, line)
+
+        process.wait(timeout=3600)
+        result = _build_crawler_result(crawler, platform, keywords, max_notes, start_time, process.returncode, output_lines)
+
+        if process.returncode == 0:
+            _update_crawler_task(
+                task_id,
+                status="completed",
+                status_message="采集完成，数据已尝试落库",
+                completed_at=_crawl_now(),
+                result=result,
+                auto_analyze=bool(task.get("auto_analyze")),
+            )
+            _append_crawler_log(task_id, "采集任务完成")
+        else:
+            _update_crawler_task(
+                task_id,
+                status="failed",
+                status_message=f"采集任务失败，退出码 {process.returncode}",
+                completed_at=_crawl_now(),
+                result=result,
+                error=f"爬虫子进程退出码 {process.returncode}",
+            )
+            _append_crawler_log(task_id, f"采集任务失败，退出码 {process.returncode}")
+
+    except subprocess.TimeoutExpired:
+        if process is not None:
+            process.kill()
+        _update_crawler_task(
+            task_id,
+            status="failed",
+            status_message="采集超时，请稍后重试",
+            completed_at=_crawl_now(),
+            error="爬虫执行超时",
+        )
+        _append_crawler_log(task_id, "采集超时，任务已终止")
+    except Exception as exc:
+        if process is not None and process.poll() is None:
+            process.kill()
+        _update_crawler_task(
+            task_id,
+            status="failed",
+            status_message=f"采集任务异常: {exc}",
+            completed_at=_crawl_now(),
+            error=str(exc),
+        )
+        _append_crawler_log(task_id, f"采集任务异常: {exc}")
+        logger.exception(f"Crawler task {task_id} failed: {exc}")
+    finally:
+        stop_event.set()
+        _set_active_crawler_task(None)
+
+
+def _create_crawler_task(
+    platform: str,
+    keywords: List[str],
+    login_type: str,
+    max_notes: int,
+    auto_analyze: bool,
+) -> Dict[str, Any]:
+    global ACTIVE_CRAWLER_TASK_ID, LATEST_CRAWLER_TASK_ID
+
+    task_id = uuid.uuid4().hex[:12]
+    task = {
+        "task_id": task_id,
+        "platform": platform,
+        "keywords": keywords,
+        "login_type": login_type,
+        "max_notes": max_notes,
+        "auto_analyze": auto_analyze,
+        "status": "queued",
+        "status_message": "任务已创建，等待启动",
+        "error": "",
+        "logs": [],
+        "result": None,
+        "created_at": _crawl_now(),
+        "updated_at": _crawl_now(),
+        "started_at": None,
+        "completed_at": None,
+        "qr_code_available": _get_crawler_qrcode_path().exists(),
+        "qr_code_url": "/api/crawl/qrcode",
+    }
+
+    with CRAWLER_TASK_LOCK:
+        if ACTIVE_CRAWLER_TASK_ID:
+            active = CRAWLER_TASKS.get(ACTIVE_CRAWLER_TASK_ID)
+            if active and active.get("status") in {"queued", "running", "waiting_login"}:
+                raise RuntimeError("当前已有采集任务在执行，请先完成或等待当前任务结束")
+        CRAWLER_TASKS[task_id] = task
+        ACTIVE_CRAWLER_TASK_ID = task_id
+        LATEST_CRAWLER_TASK_ID = task_id
+
+    worker = threading.Thread(target=_run_crawler_task, args=(task_id,), daemon=True)
+    worker.start()
+    return _copy_crawler_task(task)
 
 
 def _prepare_system_start():
@@ -1195,6 +1850,143 @@ def search():
         'success': True,
         'query': query,
         'results': results
+    })
+
+
+@app.route('/api/search/raw', methods=['POST'])
+def raw_search():
+    """原始帖子检索接口，返回可直接展示的库内命中列表。"""
+    payload = request.get_json(silent=True) or {}
+    query = str(payload.get('query', '') or '').strip()
+    platform = _normalize_search_platform(payload.get('platform', 'all'))
+    time_range = _normalize_search_time_range(payload.get('time_range', 'all'))
+    sort_by = _normalize_search_sort(payload.get('sort_by', 'latest'))
+
+    try:
+        limit = int(payload.get('limit', 20) or 20)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': '结果数量必须是数字'}), 400
+
+    if not query:
+        return jsonify({'success': False, 'message': '搜索关键词不能为空'}), 400
+
+    limit = max(1, min(limit, 100))
+
+    try:
+        result = _search_raw_posts(
+            query=query,
+            platform=platform,
+            time_range=time_range,
+            sort_by=sort_by,
+            limit=limit,
+        )
+        return jsonify({
+            'success': True,
+            'message': '原始帖子检索完成',
+            **result,
+        })
+    except Exception as exc:
+        logger.exception(f"原始帖子检索失败: {exc}")
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+
+@app.route('/api/crawl/start', methods=['POST'])
+def start_crawl():
+    payload = request.get_json(silent=True) or {}
+    platform = _normalize_crawler_platform(payload.get('platform', 'xhs'))
+    try:
+        max_notes = int(payload.get('max_notes', 10) or 10)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': '采集数量必须是数字'}), 400
+    login_type = str(payload.get('login_type', 'qrcode')).strip() or 'qrcode'
+    auto_analyze = bool(payload.get('auto_analyze', False))
+    keywords = _parse_keywords(payload.get('keywords'))
+
+    if not keywords:
+        return jsonify({'success': False, 'message': '关键词不能为空'}), 400
+
+    if max_notes <= 0:
+        return jsonify({'success': False, 'message': '采集数量必须大于 0'}), 400
+
+    try:
+        task = _create_crawler_task(
+            platform=platform,
+            keywords=keywords,
+            login_type=login_type,
+            max_notes=max_notes,
+            auto_analyze=auto_analyze,
+        )
+        return jsonify({
+            'success': True,
+            'message': '采集任务已启动',
+            'task': task,
+        })
+    except Exception as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+
+@app.route('/api/crawl/status')
+def get_crawl_status():
+    task_id = request.args.get('task_id')
+    task = _get_crawler_task(task_id)
+    return jsonify({
+        'success': True,
+        'task': task,
+        'active_task_id': task['task_id'] if task else None,
+    })
+
+
+@app.route('/api/crawl/qrcode')
+def get_crawl_qrcode():
+    qrcode_path = _get_crawler_qrcode_path()
+    if not qrcode_path.exists():
+        return jsonify({'success': False, 'message': '二维码尚未生成'}), 404
+    return send_file(qrcode_path, mimetype='image/png', max_age=0)
+
+
+@app.route('/api/llm/check')
+def check_llm_connectivity():
+    from config import reload_settings, settings
+
+    reload_settings()
+    targets = [
+        ('Insight Agent', settings.INSIGHT_ENGINE_API_KEY, settings.INSIGHT_ENGINE_BASE_URL, settings.INSIGHT_ENGINE_MODEL_NAME),
+        ('Media Agent', settings.MEDIA_ENGINE_API_KEY, settings.MEDIA_ENGINE_BASE_URL, settings.MEDIA_ENGINE_MODEL_NAME),
+        ('Query Agent', settings.QUERY_ENGINE_API_KEY, settings.QUERY_ENGINE_BASE_URL, settings.QUERY_ENGINE_MODEL_NAME),
+        ('Report Agent', settings.REPORT_ENGINE_API_KEY, settings.REPORT_ENGINE_BASE_URL, settings.REPORT_ENGINE_MODEL_NAME),
+        ('MindSpider Agent', getattr(settings, 'MINDSPIDER_API_KEY', None), getattr(settings, 'MINDSPIDER_BASE_URL', None), getattr(settings, 'MINDSPIDER_MODEL_NAME', None)),
+        ('Forum Host', settings.FORUM_HOST_API_KEY, settings.FORUM_HOST_BASE_URL, settings.FORUM_HOST_MODEL_NAME),
+        ('Keyword Optimizer', settings.KEYWORD_OPTIMIZER_API_KEY, settings.KEYWORD_OPTIMIZER_BASE_URL, settings.KEYWORD_OPTIMIZER_MODEL_NAME),
+    ]
+
+    deduped_results: Dict[tuple, Dict[str, Any]] = {}
+    results: List[Dict[str, Any]] = []
+    overall_success = True
+
+    for label, api_key, base_url, model_name in targets:
+        if not api_key or not model_name:
+            result = {
+                'engine': label,
+                'success': False,
+                'requested_model': model_name or '',
+                'resolved_model': '',
+                'base_url': base_url or '',
+                'message': '未配置 API Key 或模型名称',
+            }
+        else:
+            dedupe_key = (api_key, base_url or '', model_name)
+            if dedupe_key not in deduped_results:
+                deduped_results[dedupe_key] = probe_model_access(api_key=api_key, base_url=base_url, model_name=model_name)
+            result = dict(deduped_results[dedupe_key])
+            result['engine'] = label
+
+        overall_success = overall_success and bool(result.get('success'))
+        results.append(result)
+
+    return jsonify({
+        'success': overall_success,
+        'results': results,
+        'message': '全部模型连通正常' if overall_success else '部分或全部模型连通失败',
     })
 
 

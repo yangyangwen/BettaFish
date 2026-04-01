@@ -1,0 +1,99 @@
+erDiagram
+    crawl_task ||--o{ content_item : produces
+    crawl_task ||--o{ content_comment : produces
+    crawl_task ||--o{ crawl_task_keyword : includes
+
+    content_item ||--o{ content_comment : has
+    content_item ||--o{ content_tag : tagged
+    content_item ||--o{ report_evidence : cited
+    content_item ||--o{ business_signal : extracts
+
+    business_signal ||--o{ business_event : grouped_into
+    business_event ||--o{ report_evidence : supported_by
+
+    report_job ||--o{ report_section : contains
+    report_job ||--o{ report_evidence : cites
+
+    crawl_task {
+      uuid task_id PK
+      string platform
+      string login_type
+      string status
+      int requested_count
+      int collected_count
+      timestamptz started_at
+      timestamptz completed_at
+    }
+
+    content_item {
+      uuid item_id PK
+      uuid task_id FK
+      string platform
+      string source_table
+      string source_id
+      string content_type
+      text title
+      text body
+      string author_name
+      string url
+      timestamptz published_at
+      jsonb engagement
+      text source_keyword
+    }
+
+    content_comment {
+      uuid comment_id PK
+      uuid item_id FK
+      uuid task_id FK
+      string platform
+      string source_id
+      text body
+      string author_name
+      timestamptz published_at
+      jsonb engagement
+    }
+
+    business_signal {
+      uuid signal_id PK
+      uuid item_id FK
+      string signal_type
+      string category
+      decimal confidence
+      text summary
+    }
+
+    business_event {
+      uuid event_id PK
+      string brand
+      string category
+      string title
+      text summary
+      date event_date
+      string severity
+    }
+
+    report_job {
+      uuid report_id PK
+      string brand
+      string period_type
+      jsonb filters
+      string status
+      timestamptz created_at
+    }
+
+    report_section {
+      uuid section_id PK
+      uuid report_id FK
+      string section_key
+      string title
+      jsonb content_json
+    }
+
+    report_evidence {
+      uuid evidence_id PK
+      uuid report_id FK
+      uuid item_id FK
+      uuid event_id FK
+      string evidence_role
+    }
+

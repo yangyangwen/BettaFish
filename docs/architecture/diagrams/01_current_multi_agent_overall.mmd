@@ -1,0 +1,36 @@
+flowchart TD
+    U[用户查询] --> F[Flask 主控 app.py]
+    F --> UI[前端页面与 Socket.IO]
+    F --> INS[Insight Agent : 8501]
+    F --> MED[Media Agent : 8502]
+    F --> QRY[Query Agent : 8503]
+    F --> FORUM[ForumEngine]
+    F --> RPT[Report Engine]
+    F --> CRAWL[爬虫任务接口]
+
+    CRAWL --> MS[MindSpider / PlatformCrawler]
+    MS --> MC[MediaCrawler + Playwright]
+    MC --> DB[(PostgreSQL / MySQL)]
+
+    INS --> DB
+    INS --> SENT[情感分析器]
+    INS --> KWO[关键词优化器]
+
+    MED --> DB
+    QRY --> WEB[联网搜索 API]
+
+    FORUM --> HOST[Forum Host LLM]
+    HOST --> FORUM
+
+    INS --> FORUM
+    MED --> FORUM
+    QRY --> FORUM
+
+    INS --> RPT
+    MED --> RPT
+    QRY --> RPT
+    FORUM --> RPT
+
+    RPT --> IR[Document IR]
+    IR --> HTML[最终 HTML 报告]
+

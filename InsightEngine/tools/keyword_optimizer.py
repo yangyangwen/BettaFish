@@ -3,7 +3,6 @@
 使用Qwen AI将Agent生成的搜索词优化为更适合舆情数据库查询的关键词
 """
 
-from openai import OpenAI
 import json
 import sys
 import os
@@ -23,6 +22,7 @@ if utils_dir not in sys.path:
     sys.path.append(utils_dir)
 
 from retry_helper import with_graceful_retry, SEARCH_API_RETRY_CONFIG
+from openai_compat import create_chat_completion_with_fallback, create_openai_client
 
 @dataclass
 class KeywordOptimizationResponse:
@@ -54,7 +54,7 @@ class KeywordOptimizer:
 
         self.base_url = base_url or settings.KEYWORD_OPTIMIZER_BASE_URL
 
-        self.client = OpenAI(
+        self.client = create_openai_client(
             api_key=self.api_key,
             base_url=self.base_url
         )
@@ -192,14 +192,18 @@ class KeywordOptimizer:
     def _call_qwen_api(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
         """调用Qwen API"""
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
+            response, resolved_model = create_chat_completion_with_fallback(
+                self.client,
+                self.model,
+                [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
+                base_url=self.base_url,
+                logger_prefix="Keyword Optimizer",
                 temperature=0.7,
             )
+            self.model = resolved_model
 
             if response.choices:
                 content = response.choices[0].message.content

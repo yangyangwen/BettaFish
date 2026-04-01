@@ -10,11 +10,11 @@ import json
 import re
 from pathlib import Path
 from typing import List, Dict, Tuple
-from openai import OpenAI
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
+sys.path.append(str(project_root.parent))
 
 try:
     import config
@@ -22,12 +22,14 @@ try:
 except ImportError:
     raise ImportError("无法导入settings.py配置文件")
 
+from utils.openai_compat import create_chat_completion_with_fallback, create_openai_client
+
 class TopicExtractor:
     """话题提取器"""
 
     def __init__(self):
         """初始化话题提取器"""
-        self.client = OpenAI(
+        self.client = create_openai_client(
             api_key=settings.MINDSPIDER_API_KEY,
             base_url=settings.MINDSPIDER_BASE_URL
         )
@@ -54,16 +56,19 @@ class TopicExtractor:
         prompt = self._build_analysis_prompt(news_text, max_keywords)
         
         try:
-            # 调用DeepSeek API
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
+            response, resolved_model = create_chat_completion_with_fallback(
+                self.client,
+                self.model,
+                [
                     {"role": "system", "content": "你是一个专业的新闻分析师，擅长从热点新闻中提取关键词和撰写分析总结。"},
                     {"role": "user", "content": prompt}
                 ],
+                base_url=settings.MINDSPIDER_BASE_URL,
+                logger_prefix="MindSpider TopicExtractor",
                 max_tokens=1500,
-                temperature=0.3
+                temperature=0.3,
             )
+            self.model = resolved_model
             
             # 解析返回结果
             result_text = response.choices[0].message.content
@@ -218,7 +223,7 @@ class TopicExtractor:
         if not summary:
             summary = "今日热点新闻内容丰富，涵盖了社会各个层面的关注点。"
         
-        return clean_keywords[:max_keywords], summary
+        return clean_keywords, summary
     
     def _extract_simple_keywords(self, news_list: List[Dict]) -> List[str]:
         """简单关键词提取（fallback方案）"""

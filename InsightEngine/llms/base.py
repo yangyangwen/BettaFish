@@ -8,8 +8,6 @@ from datetime import datetime
 from typing import Any, Dict, Optional, Iterator, Generator
 from loguru import logger
 
-from openai import OpenAI
-
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 utils_dir = os.path.join(project_root, "utils")
@@ -18,6 +16,7 @@ if utils_dir not in sys.path:
 
 try:
     from retry_helper import with_retry, LLM_RETRY_CONFIG
+    from openai_compat import create_chat_completion_with_fallback, create_openai_client
 except ImportError:
     def with_retry(config=None):
         def decorator(func):
@@ -25,6 +24,7 @@ except ImportError:
         return decorator
 
     LLM_RETRY_CONFIG = None
+    from openai_compat import create_chat_completion_with_fallback, create_openai_client
 
 
 class LLMClient:
@@ -46,13 +46,7 @@ class LLMClient:
         except ValueError:
             self.timeout = 1800.0
 
-        client_kwargs: Dict[str, Any] = {
-            "api_key": api_key,
-            "max_retries": 0,
-        }
-        if base_url:
-            client_kwargs["base_url"] = base_url
-        self.client = OpenAI(**client_kwargs)
+        self.client = create_openai_client(api_key=api_key, base_url=base_url)
 
     @with_retry(LLM_RETRY_CONFIG)
     def invoke(self, system_prompt: str, user_prompt: str, **kwargs) -> str:
@@ -72,12 +66,16 @@ class LLMClient:
 
         timeout = kwargs.pop("timeout", self.timeout)
 
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
+        response, resolved_model = create_chat_completion_with_fallback(
+            self.client,
+            self.model_name,
+            messages,
+            base_url=self.base_url,
+            logger_prefix="Insight Engine",
             timeout=timeout,
             **extra_params,
         )
+        self.provider = resolved_model
 
         if response.choices and response.choices[0].message:
             return self.validate_response(response.choices[0].message.content)
@@ -114,12 +112,16 @@ class LLMClient:
         timeout = kwargs.pop("timeout", self.timeout)
 
         try:
-            stream = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
+            stream, resolved_model = create_chat_completion_with_fallback(
+                self.client,
+                self.model_name,
+                messages,
+                base_url=self.base_url,
+                logger_prefix="Insight Engine",
                 timeout=timeout,
                 **extra_params,
             )
+            self.provider = resolved_model
             
             for chunk in stream:
                 if chunk.choices and len(chunk.choices) > 0:

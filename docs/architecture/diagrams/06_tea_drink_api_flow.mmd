@@ -1,0 +1,27 @@
+sequenceDiagram
+    participant User as 前端用户
+    participant API as Business API
+    participant Search as Search Service
+    participant Crawl as Crawl Service
+    participant DB as PostgreSQL
+    participant Report as Report Service
+
+    User->>API: 发起原始搜索
+    API->>Search: 标准化检索参数
+    Search->>DB: 查询 content_item/content_comment
+    DB-->>Search: 返回结果
+    Search-->>API: 结构化结果集
+    API-->>User: 列表+统计
+
+    User->>API: 发起采集任务
+    API->>Crawl: 创建任务
+    Crawl->>DB: 写 crawl_task
+    Crawl-->>API: 返回 task_id
+    API-->>User: 任务已创建
+
+    User->>API: 生成报表
+    API->>Report: 传 filters + evidence_pool
+    Report->>DB: 读取 evidence + event + content
+    Report-->>API: report_id + 结构化章节
+    API-->>User: 预览/导出
+

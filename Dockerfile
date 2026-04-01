@@ -1,4 +1,5 @@
-FROM python:3.11-slim
+ARG PYTHON_BASE_IMAGE=python:3.11-slim
+FROM ${PYTHON_BASE_IMAGE}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -46,7 +47,9 @@ RUN set -euo pipefail; \
         libx11-xcb1 \
         libxshmfence1 \
         libgbm1 \
-        ffmpeg; \
+        ffmpeg \
+        nodejs \
+        npm; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
@@ -59,8 +62,13 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN uv pip install --system -r requirements.txt
 
-# Install Playwright browser binaries (system deps already handled above)
-RUN python -m playwright install chromium
+ARG INSTALL_PLAYWRIGHT_BROWSER=0
+# Browser binaries are only required when running the crawler inside the container.
+RUN if [ "${INSTALL_PLAYWRIGHT_BROWSER}" = "1" ]; then \
+        python -m playwright install chromium; \
+    else \
+        echo "Skipping Playwright browser install during image build"; \
+    fi
 
 # Copy .env
 COPY .env.example .env
@@ -69,7 +77,15 @@ COPY .env.example .env
 COPY . .
 
 # Ensure runtime directories exist even if ignored in build context
-RUN mkdir -p /ms-playwright logs final_reports insight_engine_streamlit_reports media_engine_streamlit_reports query_engine_streamlit_reports
+RUN mkdir -p \
+        /ms-playwright \
+        logs \
+        final_reports \
+        insight_engine_streamlit_reports \
+        media_engine_streamlit_reports \
+        query_engine_streamlit_reports \
+        /app/MindSpider/DeepSentimentCrawling/MediaCrawler/browser_data \
+        /app/MindSpider/DeepSentimentCrawling/MediaCrawler/data
 
 EXPOSE 5000 8501 8502 8503
 

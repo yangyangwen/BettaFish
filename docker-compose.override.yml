@@ -1,0 +1,11 @@
+services:
+  bettafish:
+    image: bettafish-local:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTHON_BASE_IMAGE: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11-slim
+        INSTALL_PLAYWRIGHT_BROWSER: "1"
+    volumes:
+      - ./:/app

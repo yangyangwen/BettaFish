@@ -7,9 +7,16 @@ services:
     # image: ghcr.nju.edu.cn/666ghj/bettafish:latest
     container_name: bettafish
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
       - STREAMLIT_SERVER_ENABLE_FILE_WATCHER=false
+      - MEDIACRAWLER_HEADLESS=true
+      - MEDIACRAWLER_ENABLE_CDP_MODE=false
+      - MEDIACRAWLER_CDP_HEADLESS=true
+      - MEDIACRAWLER_SAVE_LOGIN_STATE=true
+      - MEDIACRAWLER_SAVE_DATA_PATH=/app/MindSpider/DeepSentimentCrawling/MediaCrawler/data
     ports:
       - "5000:5000"
       - "8501:8501"
@@ -22,6 +29,8 @@ services:
       - ./insight_engine_streamlit_reports:/app/insight_engine_streamlit_reports
       - ./media_engine_streamlit_reports:/app/media_engine_streamlit_reports
       - ./query_engine_streamlit_reports:/app/query_engine_streamlit_reports
+      - ./crawler_browser_data:/app/MindSpider/DeepSentimentCrawling/MediaCrawler/browser_data
+      - ./crawler_data:/app/MindSpider/DeepSentimentCrawling/MediaCrawler/data
 
   db:
     image: postgres:15

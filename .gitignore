@@ -233,11 +233,13 @@ temp_image/
 */temp_image/
 browser_data/
 */browser_data/
+crawler_browser_data/
 
 # 爬虫数据输出
 /data/
 crawled_data/
 output/
+crawler_data/
 
 # Node.js
 node_modules/

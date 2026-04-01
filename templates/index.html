@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>微舆</title>
+    <title>茶饮舆情分析平台</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
     <!-- PDF导出依赖 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -16,25 +16,36 @@
         }
 
         body {
-            font-family: 'Arial', sans-serif;
-            background-color: #ffffff;
-            color: #000000;
+            font-family: 'Avenir Next', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background:
+                radial-gradient(circle at top left, #f6efe4 0%, #fbf7f0 38%, #efe8df 100%);
+            color: #181613;
             line-height: 1.6;
             overflow-x: hidden;
+            overflow-y: auto;
+            min-height: 100vh;
         }
 
         :root {
             --console-offset: 52px; /* app切换行 + 状态条的预留高度，运行时同步 */
+            --page-ink: #111111;
+            --page-surface: #fffdf8;
+            --page-surface-strong: #fff6e9;
+            --page-shadow: 0 24px 72px rgba(33, 24, 13, 0.12);
         }
 
         .container {
-            max-width: 100vw;
-            height: 100vh; /* 固定高度为视口高度 */
+            width: min(1680px, calc(100vw - 32px));
+            min-height: calc(100vh - 32px);
             display: flex;
             flex-direction: column;
-            border: 2px solid #000000;
-            overflow: hidden; /* 防止整体滚动 */
+            border: 2px solid var(--page-ink);
+            overflow: visible;
             position: relative;
+            margin: 16px auto;
+            background: linear-gradient(180deg, #fffefb 0%, #f8f1e7 100%);
+            box-shadow: var(--page-shadow);
+            border-radius: 28px;
         }
 
         .page-actions {
@@ -93,24 +104,27 @@
         /* 搜索框区域 */
         .search-section {
             border-bottom: 2px solid #000000;
-            padding: 20px;
-            background-color: #ffffff;
+            padding: 32px 28px 24px;
+            background: linear-gradient(180deg, #fffaf1 0%, rgba(255, 255, 255, 0.96) 100%);
         }
 
         .search-title {
-            font-size: 24px;
-            font-weight: bold;
-            text-align: center;
-            margin-bottom: 20px;
-            letter-spacing: 1px;
+            font-size: clamp(28px, 3.2vw, 42px);
+            font-weight: 800;
+            text-align: left;
+            margin: 0 auto 22px;
+            max-width: 1200px;
+            letter-spacing: 0.08em;
+            color: #162418;
         }
 
         .search-row {
             display: flex;
             align-items: stretch;
-            gap: 12px;
-            max-width: 950px;
-            margin: 0 auto 10px;
+            flex-wrap: wrap;
+            gap: 14px;
+            max-width: 1200px;
+            margin: 0 auto 14px;
         }
 
         .config-button {
@@ -119,13 +133,16 @@
             justify-content: center;
             padding: 0 24px;
             border: 2px solid #000000;
-            background-color: #ffffff;
+            background-color: #f8f4ea;
             color: #000000;
             cursor: pointer;
             font-size: 14px;
             font-weight: bold;
             transition: all 0.3s ease;
             min-width: 120px;
+            min-height: 56px;
+            border-radius: 16px;
+            box-shadow: 0 10px 24px rgba(27, 25, 21, 0.08);
         }
 
         .config-button:hover {
@@ -181,36 +198,68 @@
         .search-box {
             display: flex;
             flex: 1;
+            min-width: 0;
             border: 2px solid #000000;
+            flex-wrap: wrap;
+            border-radius: 20px;
+            overflow: hidden;
+            background-color: #fffef9;
+            box-shadow: 0 12px 28px rgba(31, 28, 22, 0.1);
         }
 
         .search-input {
             flex: 1;
-            padding: 15px;
+            padding: 18px;
             border: none;
             outline: none;
             font-size: 16px;
             background-color: #ffffff;
+            min-width: 220px;
         }
 
         .search-button {
             padding: 15px 30px;
             border: none;
             border-left: 2px solid #000000;
-            background-color: #000000;
+            background-color: #173a20;
             color: #ffffff;
             cursor: pointer;
             font-size: 16px;
             font-weight: bold;
             transition: all 0.3s ease;
+            min-height: 56px;
         }
 
         .search-button:hover {
-            background-color: #333333;
+            background-color: #22532d;
         }
 
         .search-button:disabled {
             background-color: #666666;
+            cursor: not-allowed;
+        }
+
+        .analysis-button {
+            padding: 15px 24px;
+            border: none;
+            border-left: 2px solid #000000;
+            background-color: #ffffff;
+            color: #000000;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            min-height: 56px;
+        }
+
+        .analysis-button:hover {
+            background-color: #000000;
+            color: #ffffff;
+        }
+
+        .analysis-button:disabled {
+            background-color: #f0f0f0;
+            color: #777777;
             cursor: not-allowed;
         }
 
@@ -226,6 +275,7 @@
             transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
+            min-height: 56px;
         }
 
         .upload-button:hover {
@@ -242,12 +292,399 @@
             cursor: pointer;
         }
 
+        .search-filters {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: end;
+            gap: 14px;
+            max-width: 1200px;
+            margin: 0 auto 12px;
+        }
+
+        .search-filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 160px;
+        }
+
+        .search-filter-label {
+            font-size: 12px;
+            font-weight: bold;
+            color: #444444;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .search-filter-select,
+        .search-filter-number {
+            height: 46px;
+            border: 2px solid #000000;
+            background-color: #fffdf7;
+            padding: 0 12px;
+            font-size: 14px;
+            outline: none;
+            border-radius: 14px;
+        }
+
+        .crawl-controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: end;
+            gap: 14px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .crawl-control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 160px;
+        }
+
+        .crawl-label {
+            font-size: 12px;
+            font-weight: bold;
+            color: #444444;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .crawl-select,
+        .crawl-number {
+            height: 46px;
+            border: 2px solid #000000;
+            background-color: #fffdf7;
+            padding: 0 12px;
+            font-size: 14px;
+            outline: none;
+            border-radius: 14px;
+        }
+
+        .crawl-button {
+            height: 46px;
+            border: 2px solid #000000;
+            background-color: #23462c;
+            color: #ffffff;
+            padding: 0 18px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            border-radius: 14px;
+            box-shadow: 0 10px 24px rgba(27, 25, 21, 0.08);
+        }
+
+        .crawl-button:hover {
+            background-color: #2f613a;
+        }
+
+        .crawl-button:disabled {
+            background-color: #f0f0f0;
+            color: #777777;
+            cursor: not-allowed;
+        }
+
+        .raw-results-panel {
+            max-width: 1200px;
+            margin: 14px auto 0;
+            border: 2px solid #000000;
+            background: linear-gradient(180deg, #ffffff 0%, #f8f4ec 100%);
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 18px 40px rgba(33, 24, 13, 0.08);
+        }
+
+        .raw-results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-bottom: 2px solid #000000;
+            background-color: rgba(255, 255, 255, 0.92);
+        }
+
+        .raw-results-title {
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .raw-results-status {
+            font-size: 12px;
+            font-weight: bold;
+            color: #555555;
+        }
+
+        .raw-results-status.success {
+            color: #1f5c2e;
+        }
+
+        .raw-results-status.warning {
+            color: #8a5a00;
+        }
+
+        .raw-results-status.error {
+            color: #8b4513;
+        }
+
+        .raw-results-summary {
+            padding: 12px 16px;
+            border-bottom: 1px solid #d0d0d0;
+            font-size: 13px;
+            line-height: 1.7;
+            color: #333333;
+            white-space: pre-line;
+        }
+
+        .raw-results-list {
+            max-height: 360px;
+            overflow: auto;
+            padding: 12px 16px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .raw-results-empty {
+            border: 1px dashed #b5b5b5;
+            background-color: #fafafa;
+            padding: 18px;
+            font-size: 13px;
+            color: #666666;
+            text-align: center;
+        }
+
+        .raw-result-card {
+            border: 2px solid #000000;
+            background-color: #ffffff;
+            padding: 14px;
+            box-shadow: 0 12px 28px rgba(21, 18, 13, 0.08);
+            border-radius: 18px;
+        }
+
+        .raw-result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .raw-result-title {
+            font-size: 15px;
+            font-weight: bold;
+            line-height: 1.6;
+            color: #111111;
+            white-space: pre-line;
+            word-break: break-word;
+        }
+
+        .raw-result-link {
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 32px;
+            padding: 0 12px;
+            border: 2px solid #000000;
+            background-color: #ffffff;
+            color: #000000;
+            font-size: 12px;
+            font-weight: bold;
+            text-decoration: none;
+            border-radius: 999px;
+        }
+
+        .raw-result-link:hover {
+            background-color: #000000;
+            color: #ffffff;
+        }
+
+        .raw-result-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .raw-result-tag {
+            display: inline-flex;
+            align-items: center;
+            min-height: 26px;
+            padding: 0 10px;
+            border: 1px solid #000000;
+            background-color: #f7f7f7;
+            font-size: 12px;
+            line-height: 1.4;
+            border-radius: 999px;
+        }
+
+        .raw-result-content {
+            font-size: 13px;
+            line-height: 1.75;
+            color: #333333;
+            white-space: pre-line;
+            word-break: break-word;
+        }
+
+        .raw-result-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .raw-result-stat {
+            font-size: 12px;
+            color: #555555;
+        }
+
+        .crawl-panel {
+            max-width: 1200px;
+            margin: 14px auto 0;
+            border: 2px solid #000000;
+            background: linear-gradient(180deg, #ffffff 0%, #f8f4ec 100%);
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 18px 40px rgba(33, 24, 13, 0.08);
+        }
+
+        .crawl-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-bottom: 2px solid #000000;
+            background-color: rgba(255, 255, 255, 0.92);
+        }
+
+        .crawl-panel-title {
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .crawl-panel-status {
+            font-size: 12px;
+            font-weight: bold;
+            color: #555555;
+        }
+
+        .crawl-panel-status.running,
+        .crawl-panel-status.completed {
+            color: #1f5c2e;
+        }
+
+        .crawl-panel-status.waiting_login {
+            color: #8a5a00;
+        }
+
+        .crawl-panel-status.failed {
+            color: #8b4513;
+        }
+
+        .crawl-panel-body {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 220px;
+            gap: 16px;
+            padding: 16px;
+        }
+
+        .crawl-summary {
+            font-size: 13px;
+            line-height: 1.7;
+            color: #333333;
+            white-space: pre-line;
+        }
+
+        .crawl-log {
+            margin: 0;
+            max-height: 220px;
+            overflow: auto;
+            border: 1px solid #d0d0d0;
+            background-color: #fffdf7;
+            padding: 12px;
+            font-size: 12px;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border-radius: 16px;
+        }
+
+        .crawl-qr-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: start;
+            gap: 10px;
+            border-left: 1px solid #d0d0d0;
+            padding-left: 16px;
+        }
+
+        .crawl-qr-image {
+            width: 180px;
+            height: 180px;
+            object-fit: contain;
+            border: 1px solid #d0d0d0;
+            background-color: #ffffff;
+            padding: 8px;
+            border-radius: 18px;
+        }
+
+        .crawl-qr-hint {
+            font-size: 12px;
+            line-height: 1.6;
+            color: #555555;
+            text-align: center;
+        }
+
+        @media (max-width: 900px) {
+            .search-box {
+                width: 100%;
+            }
+
+            .search-input {
+                width: 100%;
+                flex-basis: 100%;
+                border-bottom: 2px solid #000000;
+            }
+
+            .search-button,
+            .analysis-button,
+            .upload-button {
+                flex: 1 1 33%;
+                border-left: none;
+                border-top: 2px solid #000000;
+            }
+
+            .crawl-panel-body {
+                grid-template-columns: 1fr;
+            }
+
+            .crawl-qr-section {
+                border-left: none;
+                border-top: 1px solid #d0d0d0;
+                padding-left: 0;
+                padding-top: 16px;
+            }
+
+            .raw-result-header {
+                flex-direction: column;
+            }
+
+            .raw-result-link {
+                width: 100%;
+            }
+        }
+
         .upload-status {
             font-size: 12px;
             margin: 10px auto 0;
             text-align: center;
             color: #666666;
-            max-width: 950px;
+            max-width: 1200px;
         }
 
         .upload-status.success {
@@ -260,41 +697,47 @@
 
         /* 主内容区域 */
         .main-content {
-            flex: 1;
-            display: flex;
-            height: calc(100vh - 140px);
-            min-height: 0; /* 允许子元素缩小 */
+            flex: 1 1 auto;
+            display: grid;
+            grid-template-columns: minmax(0, 1.45fr) minmax(380px, 0.95fr);
+            min-height: 820px;
         }
 
         /* 嵌入页面区域 */
         .embedded-section {
-            flex: 1.8; /* 稍微缩小左侧区域 */
+            min-width: 0;
+            min-height: 760px;
             border-right: 2px solid #000000;
-            background-color: #ffffff;
+            background: linear-gradient(180deg, #fffdf8 0%, #fff8ee 100%);
             position: relative;
+            display: flex;
+            flex-direction: column;
         }
 
         .embedded-header {
-            padding: 15px;
+            padding: 18px 20px;
             border-bottom: 2px solid #000000;
-            background-color: #ffffff;
+            background-color: rgba(255, 255, 255, 0.9);
             font-weight: bold;
             text-align: center;
+            letter-spacing: 0.08em;
         }
 
         .embedded-content {
-            height: calc(100% - 60px);
+            flex: 1 1 auto;
+            min-height: 0;
+            height: auto;
             position: relative;
             overflow: hidden;
         }
 
         /* 控制台输出区域 */
         .console-section {
-            flex: 1.2; /* 稍微扩大右侧区域 */
+            min-width: 0;
+            min-height: 760px;
             display: flex;
             flex-direction: column;
-            background-color: #ffffff;
-            min-height: 0; /* 允许子元素缩小 */
+            background: linear-gradient(180deg, #fffefb 0%, #f6efe3 100%);
             overflow: hidden; /* 防止内容溢出 */
             position: relative; /* 让状态栏悬浮不占用布局空间 */
         }
@@ -302,12 +745,17 @@
         /* 应用切换按钮 */
         .app-switcher {
             display: flex;
+            flex-wrap: wrap;
+            align-items: stretch;
             border-bottom: 2px solid #000000;
+            background-color: rgba(255, 255, 255, 0.88);
         }
 
         .app-button {
-            flex: 1;
-            padding: 15px;
+            flex: 1 1 20%;
+            min-width: 160px;
+            min-height: 68px;
+            padding: 18px 14px;
             border: none;
             border-right: 2px solid #000000;
             background-color: #ffffff;
@@ -316,6 +764,9 @@
             font-weight: bold;
             transition: all 0.3s ease;
             position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .app-button:last-child {
@@ -536,9 +987,9 @@
 
         /* 状态信息 */
         .status-bar {
-            padding: 10px 20px;
+            padding: 14px 22px;
             border-top: 2px solid #000000;
-            background-color: #ffffff;
+            background-color: rgba(255, 252, 245, 0.92);
             font-size: 12px;
             display: flex;
             justify-content: space-between;
@@ -731,6 +1182,7 @@
         .config-status-message {
             font-size: 12px;
             color: #555555;
+            white-space: pre-line;
         }
 
         .config-status-message.error {
@@ -941,20 +1393,76 @@
         }
 
         /* 响应式设计 */
-        @media (max-width: 768px) {
+        @media (max-width: 1200px) {
             .main-content {
-                flex-direction: column;
-                height: auto;
+                grid-template-columns: 1fr;
+                min-height: 0;
             }
 
             .embedded-section {
                 border-right: none;
                 border-bottom: 2px solid #000000;
-                height: 400px;
+                min-height: 560px;
             }
 
             .console-section {
-                height: 300px;
+                min-height: 620px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                width: calc(100vw - 12px);
+                min-height: calc(100vh - 12px);
+                margin: 6px auto 12px;
+                border-radius: 20px;
+            }
+
+            .search-section {
+                padding: 20px 16px 18px;
+            }
+
+            .search-title {
+                margin-bottom: 16px;
+                font-size: 26px;
+                letter-spacing: 0.04em;
+            }
+
+            .search-button,
+            .analysis-button {
+                flex: 1 1 calc(50% - 6px);
+            }
+
+            .upload-button {
+                flex: 1 1 100%;
+            }
+
+            .embedded-section {
+                min-height: 420px;
+            }
+
+            .console-section {
+                min-height: 480px;
+            }
+
+            .app-button {
+                flex: 1 1 50%;
+                min-width: 0;
+                min-height: 60px;
+                font-size: 13px;
+            }
+
+            .status-bar {
+                flex-wrap: wrap;
+                gap: 12px;
+            }
+
+            .status-bar-left {
+                flex-wrap: wrap;
+            }
+
+            .status-shutdown-button {
+                width: 100%;
             }
         }
 
@@ -1499,19 +2007,100 @@
     <div class="container">
         <!-- 搜索框区域 -->
         <div class="search-section">
-            <div class="search-title">微舆 - 致力于打造简洁通用的舆情分析平台</div>
+            <div class="search-title">茶饮舆情分析平台</div>
             <div class="search-row">
                 <button class="config-button" id="openConfigButton">LLM 配置</button>
                 <div class="search-box">
                     <input type="text" class="search-input" id="searchInput" placeholder="请输入要分析的内容...">
                     <button class="search-button" id="searchButton">开始</button>
+                    <button class="analysis-button" id="analyzeButton" disabled>一键汇总分析</button>
                     <button class="upload-button" id="uploadButton">
                         上传模板
                         <input type="file" id="templateFileInput" accept=".md,.txt" title="上传自定义报告模板(支持 .md 和 .txt 文件)">
                     </button>
                 </div>
             </div>
+            <div class="search-filters">
+                <div class="search-filter-group">
+                    <label class="search-filter-label" for="searchPlatform">搜索平台</label>
+                    <select class="search-filter-select" id="searchPlatform">
+                        <option value="all">全部平台</option>
+                        <option value="xhs">小红书</option>
+                        <option value="dy">抖音</option>
+                        <option value="ks">快手</option>
+                        <option value="bili">B站</option>
+                        <option value="wb">微博</option>
+                        <option value="zhihu">知乎</option>
+                        <option value="tieba">贴吧</option>
+                    </select>
+                </div>
+                <div class="search-filter-group">
+                    <label class="search-filter-label" for="searchTimeRange">时间范围</label>
+                    <select class="search-filter-select" id="searchTimeRange">
+                        <option value="all">不限时间</option>
+                        <option value="24h">最近24小时</option>
+                        <option value="7d">最近7天</option>
+                        <option value="30d">最近30天</option>
+                    </select>
+                </div>
+                <div class="search-filter-group">
+                    <label class="search-filter-label" for="searchSort">结果排序</label>
+                    <select class="search-filter-select" id="searchSort">
+                        <option value="latest">按最新</option>
+                        <option value="hot">按热度</option>
+                    </select>
+                </div>
+                <div class="search-filter-group">
+                    <label class="search-filter-label" for="searchLimit">展示数量</label>
+                    <input type="number" class="search-filter-number" id="searchLimit" min="5" max="100" value="20">
+                </div>
+            </div>
+            <div class="crawl-controls">
+                <div class="crawl-control-group">
+                    <label class="crawl-label" for="crawlPlatform">采集平台</label>
+                    <select class="crawl-select" id="crawlPlatform">
+                        <option value="xhs">小红书 xhs</option>
+                        <option value="dy">抖音 dy</option>
+                        <option value="ks">快手 ks</option>
+                        <option value="bili">B站 bili</option>
+                        <option value="zhihu">知乎 zhihu</option>
+                        <option value="wb">微博 wb</option>
+                        <option value="tieba">贴吧 tieba</option>
+                    </select>
+                </div>
+                <div class="crawl-control-group">
+                    <label class="crawl-label" for="crawlMaxNotes">单词条数量</label>
+                    <input type="number" class="crawl-number" id="crawlMaxNotes" min="1" max="100" value="10">
+                </div>
+                <button class="crawl-button" id="crawlButton">采集并入库</button>
+            </div>
             <div class="upload-status" id="uploadStatus"></div>
+            <div class="crawl-panel" id="crawlPanel">
+                <div class="crawl-panel-header">
+                    <div class="crawl-panel-title">采集任务</div>
+                    <div class="crawl-panel-status" id="crawlStatusText">未启动</div>
+                </div>
+                <div class="crawl-panel-body">
+                    <div>
+                        <div class="crawl-summary" id="crawlSummary">输入关键词后可直接触发采集，首次登录会在这里显示扫码提示。</div>
+                        <pre class="crawl-log" id="crawlLog">暂无采集日志</pre>
+                    </div>
+                    <div class="crawl-qr-section" id="crawlQrSection" hidden>
+                        <img class="crawl-qr-image" id="crawlQrImage" alt="登录二维码">
+                        <div class="crawl-qr-hint">检测到需要扫码登录，请使用对应平台 App 扫码。</div>
+                    </div>
+                </div>
+            </div>
+            <div class="raw-results-panel" id="rawResultsPanel">
+                <div class="raw-results-header">
+                    <div class="raw-results-title">原始帖子列表</div>
+                    <div class="raw-results-status" id="rawResultsStatus">请先输入关键词并检索原始数据</div>
+                </div>
+                <div class="raw-results-summary" id="rawResultsSummary">这里会先展示库内命中的帖子、笔记和视频原文，再决定是否一键汇总分析。</div>
+                <div class="raw-results-list" id="rawResultsList">
+                    <div class="raw-results-empty">暂无原始命中数据。</div>
+                </div>
+            </div>
         </div>
 
         <!-- 主内容区域 -->
@@ -1623,6 +2212,7 @@
             <div class="config-modal-footer">
                 <div class="config-status-message" id="configStatusMessage"></div>
                 <div class="config-modal-footer-actions">
+                    <button class="config-secondary-button" id="checkLlmButton">检查连通性</button>
                     <button class="config-save-button" id="saveConfigButton">保存</button>
                     <button class="config-start-button" id="startSystemButton">保存并启动系统</button>
                 </div>
@@ -1655,6 +2245,10 @@
         let socketConnected = false;
         let reportStreamConnected = false;
         let backendReachable = false;
+        let crawlTaskState = null;
+        let crawlRawSearchTriggeredForTaskId = null;
+        let rawSearchState = null;
+        let rawSearchInFlight = false;
         const consoleLayerApps = ['insight', 'media', 'query', 'forum', 'report'];
         const consoleLayers = {};
         let activeConsoleLayer = currentApp;
@@ -1674,6 +2268,7 @@
             refreshConsole: null,
             refreshForum: null,
             reportLockCheck: null,
+            crawlStatus: null,
             connectionProbe: null
         };
 
@@ -1732,6 +2327,7 @@
 
             // 报告锁定检查定时器
             allTimers.reportLockCheck = setInterval(checkReportLockStatus, 15000);
+            allTimers.crawlStatus = setInterval(() => refreshCrawlTaskStatus(true), 3000);
         }
 
         // 暂停所有定时器
@@ -2037,6 +2633,35 @@
             media: 8502,
             query: 8503
         };
+        const CRAWL_PLATFORM_LABELS = {
+            all: '全部平台',
+            xhs: '小红书',
+            dy: '抖音',
+            ks: '快手',
+            bili: 'B站',
+            wb: '微博',
+            zhihu: '知乎',
+            tieba: '贴吧'
+        };
+        const CRAWL_PLATFORM_ALIASES = {
+            all: 'all',
+            weibo: 'wb',
+            xiaohongshu: 'xhs',
+            rednote: 'xhs',
+            douyin: 'dy',
+            kuaishou: 'ks',
+            bilibili: 'bili'
+        };
+        const SEARCH_TIME_RANGE_LABELS = {
+            all: '不限时间',
+            '24h': '最近24小时',
+            '7d': '最近7天',
+            '30d': '最近30天'
+        };
+        const SEARCH_SORT_LABELS = {
+            latest: '按最新',
+            hot: '按热度'
+        };
 
         const configFieldGroups = [
             {
@@ -2086,6 +2711,15 @@
                     { key: 'REPORT_ENGINE_API_KEY', label: 'API Key', type: 'password' },
                     { key: 'REPORT_ENGINE_BASE_URL', label: 'Base URL' },
                     { key: 'REPORT_ENGINE_MODEL_NAME', label: '模型名称' }
+                ]
+            },
+            {
+                title: 'MindSpider Agent',
+                subtitle: 'OpenAi接入格式，用于热点提取等辅助任务',
+                fields: [
+                    { key: 'MINDSPIDER_API_KEY', label: 'API Key', type: 'password' },
+                    { key: 'MINDSPIDER_BASE_URL', label: 'Base URL' },
+                    { key: 'MINDSPIDER_MODEL_NAME', label: '模型名称' }
                 ]
             },
             {
@@ -2143,6 +2777,25 @@
 
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
+            const titleEl = document.querySelector('.search-title');
+            if (titleEl) titleEl.textContent = '茶饮舆情分析平台';
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput) searchInput.placeholder = '输入关键词，可直接采集入库或分析库内数据...';
+            const searchButton = document.getElementById('searchButton');
+            if (searchButton) {
+                searchButton.textContent = '检索原始数据';
+                searchButton.dataset.defaultText = '检索原始数据';
+            }
+            const analyzeButton = document.getElementById('analyzeButton');
+            if (analyzeButton) {
+                analyzeButton.textContent = '一键汇总分析';
+                analyzeButton.dataset.defaultText = '一键汇总分析';
+            }
+            const crawlButton = document.getElementById('crawlButton');
+            if (crawlButton) {
+                crawlButton.dataset.defaultText = '采集并入库';
+            }
+
             initializeConsoleLayers();
             syncStatusBarPosition();
             initializeSocket();
@@ -2156,6 +2809,7 @@
             updateTime(); // 立即更新一次
             checkStatus(); // 立即检查一次
             checkReportLockStatus(); // 立即检查一次
+            refreshCrawlTaskStatus(true);
 
             // 启动所有定时器
             startAllTimers();
@@ -2238,12 +2892,26 @@
         // 事件监听器
         function initializeEventListeners() {
             // 搜索按钮
-            document.getElementById('searchButton').addEventListener('click', performSearch);
+            document.getElementById('searchButton').addEventListener('click', () => performRawSearch());
+            const analyzeButton = document.getElementById('analyzeButton');
+            if (analyzeButton) {
+                analyzeButton.addEventListener('click', () => performSearch());
+            }
             document.getElementById('searchInput').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
-                    performSearch();
+                    performRawSearch();
                 }
             });
+            ['searchInput', 'searchPlatform', 'searchTimeRange', 'searchSort', 'searchLimit'].forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.addEventListener(id === 'searchInput' || id === 'searchLimit' ? 'input' : 'change', markRawResultsStale);
+                }
+            });
+            const crawlButton = document.getElementById('crawlButton');
+            if (crawlButton) {
+                crawlButton.addEventListener('click', startCrawlTask);
+            }
 
             // 文件上传
             document.getElementById('templateFileInput').addEventListener('change', handleTemplateUpload);
@@ -2275,6 +2943,10 @@
             const saveConfigButton = document.getElementById('saveConfigButton');
             if (saveConfigButton) {
                 saveConfigButton.addEventListener('click', () => saveConfigUpdates());
+            }
+            const checkLlmButton = document.getElementById('checkLlmButton');
+            if (checkLlmButton) {
+                checkLlmButton.addEventListener('click', () => checkLlmConnectivity());
             }
 
             const startSystemButton = document.getElementById('startSystemButton');
@@ -2791,17 +3463,24 @@
             const status = await fetchSystemStatus();
             if (!status || !status.success) {
                 openConfigModal({
-                    lock: true,
+                    lock: false,
                     message: '无法获取系统状态，请检查配置后重试。'
                 });
                 return;
             }
 
             if (!status.started) {
-                openConfigModal({
-                    lock: true,
-                    message: '请先确认配置，然后点击“保存并启动系统”'
+                showMessage('检测到系统未启动，正在自动恢复...', 'success');
+                const started = await startSystem({
+                    auto: true,
+                    openModalOnFailure: true
                 });
+                if (!started) {
+                    openConfigModal({
+                        lock: false,
+                        message: '自动启动失败，请检查配置后重试。'
+                    });
+                }
             } else {
                 applySystemState(status);
                 configModalLocked = false;
@@ -2956,10 +3635,15 @@
             }
         }
 
-        async function startSystem() {
+        async function startSystem(options = {}) {
+            const {
+                auto = false,
+                openModalOnFailure = false,
+                reloadOnSuccess = true
+            } = options;
             if (systemStarting) {
                 setConfigStatus('系统正在启动，请稍候...', '');
-                return;
+                return false;
             }
 
             systemStarting = true;
@@ -2972,7 +3656,7 @@
                     if (!saved) {
                         systemStarting = false;
                         updateStartButtonState();
-                        return;
+                        return false;
                     }
                 }
 
@@ -2984,26 +3668,39 @@
                     throw new Error(message);
                 }
 
-                showMessage('系统启动成功', 'success');
-                setConfigStatus('系统启动成功', 'success');
+                const successMessage = auto ? '系统已自动启动' : '系统启动成功';
+                showMessage(successMessage, 'success');
+                setConfigStatus(successMessage, 'success');
                 applySystemState({ started: true, starting: false });
                 configModalLocked = false;
 
-                setTimeout(() => {
-                    closeConfigModal();
-                }, 800);
+                if (isConfigModalVisible()) {
+                    setTimeout(() => {
+                        closeConfigModal(true);
+                    }, 800);
+                }
 
                 setTimeout(() => {
                     checkStatus();
                 }, 1000);
 
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1200);
+                if (reloadOnSuccess) {
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1200);
+                }
+                return true;
             } catch (error) {
                 setConfigStatus(`系统启动失败: ${error.message}`, 'error');
                 showMessage(`系统启动失败: ${error.message}`, 'error');
                 applySystemState({ started: false, starting: false });
+                if (openModalOnFailure && !isConfigModalVisible()) {
+                    openConfigModal({
+                        lock: false,
+                        message: `系统启动失败: ${error.message}`
+                    });
+                }
+                return false;
             } finally {
                 systemStarting = false;
                 updateStartButtonState();
@@ -3012,93 +3709,572 @@
         }
 
         // 执行搜索
-        function performSearch() {
+        function getSearchFilters() {
+            const searchPlatform = document.getElementById('searchPlatform');
+            const searchTimeRange = document.getElementById('searchTimeRange');
+            const searchSort = document.getElementById('searchSort');
+            const searchLimit = document.getElementById('searchLimit');
+            const platform = normalizeCrawlPlatform(searchPlatform ? searchPlatform.value : 'all');
+            const timeRange = String(searchTimeRange ? searchTimeRange.value : 'all');
+            const sortBy = String(searchSort ? searchSort.value : 'latest');
+            const limit = Math.max(5, Math.min(100, parseInt(searchLimit ? searchLimit.value : '20', 10) || 20));
+            return {
+                platform,
+                platformLabel: CRAWL_PLATFORM_LABELS[platform] || platform,
+                timeRange,
+                timeRangeLabel: SEARCH_TIME_RANGE_LABELS[timeRange] || timeRange,
+                sortBy,
+                sortLabel: SEARCH_SORT_LABELS[sortBy] || sortBy,
+                limit
+            };
+        }
+
+        function formatDateTimeForAnalysis(date, includeTime = false) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            if (!includeTime) {
+                return `${year}-${month}-${day}`;
+            }
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${year}-${month}-${day} ${hours}:${minutes}`;
+        }
+
+        function buildAnalysisQuery(query, filters) {
+            const constraints = [];
+            if (filters.platform && filters.platform !== 'all') {
+                constraints.push(`平台限定：${filters.platformLabel}`);
+            }
+            if (filters.timeRange && filters.timeRange !== 'all') {
+                const now = new Date();
+                const start = new Date(now.getTime());
+                let includeTime = false;
+                if (filters.timeRange === '24h') {
+                    start.setHours(start.getHours() - 24);
+                    includeTime = true;
+                } else if (filters.timeRange === '7d') {
+                    start.setDate(start.getDate() - 7);
+                } else if (filters.timeRange === '30d') {
+                    start.setDate(start.getDate() - 30);
+                }
+                constraints.push(`时间范围：${filters.timeRangeLabel}（${formatDateTimeForAnalysis(start, includeTime)} 至 ${formatDateTimeForAnalysis(now, includeTime)}）`);
+            }
+            constraints.push(`结果偏好：${filters.sortLabel}`);
+            if (!constraints.length) {
+                return query;
+            }
+            return `${query}\n\n请优先基于以下筛选条件做库内分析：${constraints.join('；')}。请先关注原始帖子、笔记和视频样本，再给出汇总结论。`;
+        }
+
+        function setAnalyzeButtonState(enabled) {
+            const button = document.getElementById('analyzeButton');
+            if (!button) {
+                return;
+            }
+            const defaultText = button.dataset.defaultText || button.textContent || '一键汇总分析';
+            button.dataset.defaultText = defaultText;
+            button.disabled = !enabled;
+            if (!button.dataset.busy) {
+                button.textContent = defaultText;
+            }
+        }
+
+        function setRawResultsStatus(text, type = 'info') {
+            const status = document.getElementById('rawResultsStatus');
+            if (!status) {
+                return;
+            }
+            status.textContent = text;
+            status.className = `raw-results-status ${type}`.trim();
+        }
+
+        function setRawResultsLoading(message) {
+            const summary = document.getElementById('rawResultsSummary');
+            const list = document.getElementById('rawResultsList');
+            setRawResultsStatus(message, 'warning');
+            if (summary) {
+                summary.textContent = '正在从本地数据库检索原始帖子，请稍候...';
+            }
+            if (list) {
+                list.innerHTML = '<div class="raw-results-empty">正在检索原始帖子...</div>';
+            }
+        }
+
+        function renderRawResults(response) {
+            const summary = document.getElementById('rawResultsSummary');
+            const list = document.getElementById('rawResultsList');
+            if (!summary || !list) {
+                return;
+            }
+
+            const filters = response.filters || {};
+            const breakdown = Object.entries(response.platform_breakdown || {}).map(([platform, count]) => {
+                const label = CRAWL_PLATFORM_LABELS[platform] || platform;
+                return `${label} ${count} 条`;
+            });
+            const summaryParts = [
+                `关键词：${response.query || ''}`,
+                `平台：${filters.platform_label || '全部平台'}`,
+                `时间：${filters.time_range_label || '不限时间'}`,
+                `排序：${filters.sort_label || '按最新'}`,
+                `命中：${response.total_matches || 0} 条，当前展示 ${response.returned_count || 0} 条`
+            ];
+            if (breakdown.length) {
+                summaryParts.push(`分布：${breakdown.join('，')}`);
+            }
+            if (response.partial_errors && response.partial_errors.length) {
+                summaryParts.push(`部分平台失败：${response.partial_errors.join('；')}`);
+            }
+            summary.textContent = summaryParts.join(' | ');
+
+            const typeLabels = {
+                note: '帖子/笔记',
+                video: '视频',
+                content: '内容',
+                news: '新闻'
+            };
+            const statLabels = {
+                likes: '点赞',
+                comments: '评论',
+                shares: '分享',
+                views: '浏览',
+                favorites: '收藏',
+                coins: '投币',
+                danmaku: '弹幕'
+            };
+
+            if (!Array.isArray(response.results) || response.results.length === 0) {
+                list.innerHTML = '<div class="raw-results-empty">当前筛选条件下没有命中的原始帖子。</div>';
+                setRawResultsStatus('未找到原始帖子', 'warning');
+                rawSearchState = {
+                    query: response.query || '',
+                    filters,
+                    stale: false,
+                    returnedCount: 0
+                };
+                setAnalyzeButtonState(false);
+                return;
+            }
+
+            list.innerHTML = response.results.map(item => {
+                const metaTags = [
+                    item.platform_label || item.platform || '未知平台',
+                    typeLabels[item.content_type] || item.content_type || '内容',
+                    item.author_nickname ? `作者：${item.author_nickname}` : '',
+                    item.publish_time_display ? `时间：${item.publish_time_display}` : '',
+                    item.source_keyword ? `来源词：${item.source_keyword}` : ''
+                ].filter(Boolean);
+                const stats = Object.entries(item.engagement || {})
+                    .filter(([, value]) => Number(value) > 0)
+                    .map(([key, value]) => `<span class="raw-result-stat">${escapeHtml(statLabels[key] || key)} ${escapeHtml(String(value))}</span>`);
+                stats.push(`<span class="raw-result-stat">热度 ${escapeHtml(String(item.hotness_score || 0))}</span>`);
+                const linkHtml = item.url
+                    ? `<a class="raw-result-link" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">查看原文</a>`
+                    : '';
+                return `
+                    <div class="raw-result-card">
+                        <div class="raw-result-header">
+                            <div class="raw-result-title">${escapeHtml(item.preview || item.title_or_content || '未命名内容')}</div>
+                            ${linkHtml}
+                        </div>
+                        <div class="raw-result-meta">
+                            ${metaTags.map(tag => `<span class="raw-result-tag">${escapeHtml(tag)}</span>`).join('')}
+                        </div>
+                        <div class="raw-result-content">${escapeHtml(item.title_or_content || '')}</div>
+                        <div class="raw-result-stats">${stats.join('')}</div>
+                    </div>
+                `;
+            }).join('');
+
+            rawSearchState = {
+                query: response.query || '',
+                filters,
+                stale: false,
+                returnedCount: response.returned_count || 0
+            };
+            setAnalyzeButtonState(true);
+            setRawResultsStatus(`原始命中 ${response.total_matches || 0} 条`, 'success');
+        }
+
+        function markRawResultsStale() {
+            if (!rawSearchState || rawSearchInFlight) {
+                return;
+            }
+            rawSearchState.stale = true;
+            setAnalyzeButtonState(false);
+            setRawResultsStatus('筛选已变更，请重新检索原始数据', 'warning');
+        }
+
+        async function performRawSearch(options = {}) {
             const query = document.getElementById('searchInput').value.trim();
             if (!query) {
                 showMessage('请输入搜索内容', 'error');
                 return;
             }
 
-            const button = document.getElementById('searchButton');
-            button.disabled = true;
-            button.innerHTML = '<span class="loading"></span> 搜索中...';
+            if (rawSearchInFlight) {
+                return;
+            }
 
-            // 清除现有报告，重置自动生成标志，为新搜索做准备
+            const button = document.getElementById('searchButton');
+            const defaultButtonText = button.dataset.defaultText || button.textContent || '检索原始数据';
+            button.dataset.defaultText = defaultButtonText;
+            button.disabled = true;
+            button.innerHTML = '<span class="loading"></span> 检索中...';
+            rawSearchInFlight = true;
+            rawSearchState = null;
+            setAnalyzeButtonState(false);
+            setRawResultsLoading('正在检索原始帖子');
+
+            try {
+                const filters = getSearchFilters();
+                const response = await fetch('/api/search/raw', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query,
+                        platform: filters.platform,
+                        time_range: filters.timeRange,
+                        sort_by: filters.sortBy,
+                        limit: filters.limit
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || '原始帖子检索失败');
+                }
+                renderRawResults(data);
+                if (!options.silent) {
+                    showMessage(`原始帖子检索完成，当前展示 ${data.returned_count || 0} 条`, 'success');
+                }
+            } catch (error) {
+                const summary = document.getElementById('rawResultsSummary');
+                const list = document.getElementById('rawResultsList');
+                if (summary) {
+                    summary.textContent = '原始帖子检索失败，请检查数据库连接和筛选条件。';
+                }
+                if (list) {
+                    list.innerHTML = '<div class="raw-results-empty">原始帖子检索失败，请稍后重试。</div>';
+                }
+                setRawResultsStatus('原始帖子检索失败', 'error');
+                showMessage(`原始帖子检索失败: ${error.message}`, 'error');
+            } finally {
+                rawSearchInFlight = false;
+                button.disabled = false;
+                button.textContent = defaultButtonText;
+            }
+        }
+
+        function performSearch(forceReload = true) {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) {
+                showMessage('请输入搜索内容', 'error');
+                return;
+            }
+
+            if (!rawSearchState || rawSearchState.stale) {
+                showMessage('请先检索原始帖子列表，再执行汇总分析', 'error');
+                return;
+            }
+
+            const button = document.getElementById('analyzeButton');
+            const defaultButtonText = button.dataset.defaultText || button.textContent || '一键汇总分析';
+            button.dataset.defaultText = defaultButtonText;
+            button.dataset.busy = 'true';
+            button.disabled = true;
+            button.innerHTML = '<span class="loading"></span> 分析中...';
+
+            const filters = {
+                platform: rawSearchState.filters.platform || 'all',
+                platformLabel: rawSearchState.filters.platform_label || '全部平台',
+                timeRange: rawSearchState.filters.time_range || 'all',
+                timeRangeLabel: rawSearchState.filters.time_range_label || '不限时间',
+                sortBy: rawSearchState.filters.sort_by || 'latest',
+                sortLabel: rawSearchState.filters.sort_label || '按最新'
+            };
+            const analysisQuery = buildAnalysisQuery(query, filters);
+
             const reportPreview = document.getElementById('reportPreview');
             if (reportPreview) {
                 reportPreview.innerHTML = '<div class="report-loading">等待新的搜索结果生成报告...</div>';
             }
 
-            // 清除任务进度显示
             const taskProgressArea = document.getElementById('taskProgressArea');
             if (taskProgressArea) {
                 taskProgressArea.innerHTML = '';
             }
 
-            // 重置自动生成相关标志
             autoGenerateTriggered = false;
             reportTaskId = null;
-
-            // 停止可能正在进行的轮询
             stopProgressPolling();
 
-            // 向所有运行中的应用发送搜索请求（通过刷新iframe传递参数）
             let totalRunning = 0;
             const ports = { insight: 8501, media: 8502, query: 8503 };
 
             Object.keys(appStatus).forEach(app => {
                 if (appStatus[app] === 'running' && ports[app]) {
                     totalRunning++;
-
-                    // 懒加载iframe(如果还没有加载)
                     let iframe = preloadedIframes[app];
                     if (!iframe) {
                         iframe = lazyLoadIframe(app);
                     }
 
                     if (iframe) {
-                        // 构建搜索URL
-                        const searchUrl = `http://${window.location.hostname}:${ports[app]}?query=${encodeURIComponent(query)}&auto_search=true`;
-                        console.log(`向 ${app} 发送搜索请求: ${searchUrl}`);
-
-                        // 检查iframe是否已经加载了相同的查询,避免不必要的重新加载
-                        const currentSrc = iframe.src || '';
-
-                        // 只在查询不同时才更新iframe
-                        // 提取当前URL的query参数
-                        let needsUpdate = true;
-                        try {
-                            const currentUrl = new URL(currentSrc);
-                            const newUrl = new URL(searchUrl);
-                            const currentQuery = currentUrl.searchParams.get('query');
-                            const newQuery = newUrl.searchParams.get('query');
-
-                            // 如果query参数相同,不需要重新加载
-                            if (currentQuery === newQuery) {
-                                needsUpdate = false;
-                                console.log(`${app} iframe已有相同查询,跳过重新加载`);
-                            }
-                        } catch (e) {
-                            // URL解析失败,执行更新
-                            needsUpdate = true;
-                        }
-
-                        if (needsUpdate) {
-                            // 直接更新iframe的src来传递搜索参数
-                            iframe.src = searchUrl;
-                        }
+                        const refreshToken = forceReload ? `&refresh_token=${Date.now()}` : '';
+                        const searchUrl = `http://${window.location.hostname}:${ports[app]}?query=${encodeURIComponent(analysisQuery)}&auto_search=true&platform=${encodeURIComponent(filters.platform)}&time_range=${encodeURIComponent(filters.timeRange)}&sort_by=${encodeURIComponent(filters.sortBy)}${refreshToken}`;
+                        console.log(`向 ${app} 发送分析请求: ${searchUrl}`);
+                        iframe.src = searchUrl;
                     }
                 }
             });
 
+            button.dataset.busy = '';
             if (totalRunning === 0) {
                 button.disabled = false;
-                button.innerHTML = '搜索';
-                showMessage('没有运行中的应用，无法执行搜索', 'error');
+                button.textContent = defaultButtonText;
+                showMessage('没有运行中的分析应用，无法执行库内分析', 'error');
             } else {
                 button.disabled = false;
-                button.innerHTML = '搜索';
-                showMessage(`搜索请求已发送到 ${totalRunning} 个应用，页面将刷新以开始研究`, 'success');
+                button.textContent = defaultButtonText;
+                showMessage(`汇总分析请求已发送到 ${totalRunning} 个应用`, 'success');
+            }
+        }
+
+        function normalizeCrawlPlatform(platform) {
+            const normalized = String(platform || 'xhs').trim().toLowerCase();
+            return CRAWL_PLATFORM_ALIASES[normalized] || normalized;
+        }
+
+        function hasRunningAnalysisApps() {
+            return ['insight', 'media', 'query'].some(app => appStatus[app] === 'running');
+        }
+
+        function setCrawlButtonState(task) {
+            const crawlButton = document.getElementById('crawlButton');
+            if (!crawlButton) {
+                return;
+            }
+
+            const defaultText = crawlButton.dataset.defaultText || '采集并入库';
+            crawlButton.dataset.defaultText = defaultText;
+
+            if (!task || !['queued', 'running', 'waiting_login'].includes(task.status)) {
+                crawlButton.disabled = false;
+                crawlButton.textContent = defaultText;
+                return;
+            }
+
+            crawlButton.disabled = true;
+            if (task.status === 'queued') {
+                crawlButton.textContent = '准备采集...';
+            } else if (task.status === 'waiting_login') {
+                crawlButton.textContent = '等待扫码...';
+            } else {
+                crawlButton.textContent = '采集中...';
+            }
+        }
+
+        function renderCrawlTask(task) {
+            crawlTaskState = task || null;
+
+            const statusText = document.getElementById('crawlStatusText');
+            const summary = document.getElementById('crawlSummary');
+            const logBox = document.getElementById('crawlLog');
+            const qrSection = document.getElementById('crawlQrSection');
+            const qrImage = document.getElementById('crawlQrImage');
+
+            if (!task) {
+                if (statusText) {
+                    statusText.textContent = '未启动';
+                    statusText.className = 'crawl-panel-status';
+                }
+                if (summary) {
+                    summary.textContent = '输入关键词后可直接触发采集，首次登录会在这里显示扫码提示。';
+                }
+                if (logBox) {
+                    logBox.textContent = '暂无采集日志';
+                }
+                if (qrSection) {
+                    qrSection.hidden = true;
+                }
+                setCrawlButtonState(null);
+                return;
+            }
+
+            const platformLabel = CRAWL_PLATFORM_LABELS[task.platform] || task.platform || '未知平台';
+            const keywordsText = Array.isArray(task.keywords) && task.keywords.length
+                ? task.keywords.join('、')
+                : '未提供关键词';
+            const summaryParts = [
+                `平台：${platformLabel}`,
+                `关键词：${keywordsText}`,
+                `状态：${task.status_message || task.status || '未知'}`
+            ];
+
+            if (task.result) {
+                summaryParts.push(
+                    `帖子：${task.result.notes_count || 0}`,
+                    `评论：${task.result.comments_count || 0}`,
+                    `错误：${task.result.errors_count || 0}`,
+                    `耗时：${task.result.duration_seconds || 0}s`
+                );
+            } else if (task.max_notes) {
+                summaryParts.push(`单词条数量：${task.max_notes}`);
+            }
+
+            if (task.error) {
+                summaryParts.push(`异常：${task.error}`);
+            }
+
+            if (statusText) {
+                statusText.textContent = task.status_message || task.status || '未知状态';
+                statusText.className = `crawl-panel-status ${task.status || ''}`.trim();
+            }
+            if (summary) {
+                summary.textContent = summaryParts.join(' | ');
+            }
+            if (logBox) {
+                const logs = Array.isArray(task.logs) && task.logs.length ? task.logs.join('\n') : '暂无采集日志';
+                logBox.textContent = logs;
+                logBox.scrollTop = logBox.scrollHeight;
+            }
+
+            const shouldShowQr = Boolean(task.qr_code_available) || task.status === 'waiting_login';
+            if (qrSection) {
+                qrSection.hidden = !shouldShowQr;
+            }
+            if (qrImage && shouldShowQr) {
+                const qrUrl = task.qr_code_url || '/api/crawl/qrcode';
+                qrImage.src = `${qrUrl}?t=${encodeURIComponent(task.updated_at || Date.now())}`;
+            }
+
+            setCrawlButtonState(task);
+
+            if (
+                task.status === 'completed' &&
+                crawlRawSearchTriggeredForTaskId !== task.task_id
+            ) {
+                crawlRawSearchTriggeredForTaskId = task.task_id;
+                const searchInput = document.getElementById('searchInput');
+                const searchPlatform = document.getElementById('searchPlatform');
+                if (searchInput && Array.isArray(task.keywords) && task.keywords.length) {
+                    searchInput.value = task.keywords.join(' ');
+                }
+                if (searchPlatform && task.platform) {
+                    searchPlatform.value = task.platform;
+                }
+                showMessage('采集完成，数据已落库，正在刷新原始帖子列表', 'success');
+                performRawSearch({ silent: true });
+            }
+        }
+
+        async function refreshCrawlTaskStatus(silent = false) {
+            try {
+                const url = new URL('/api/crawl/status', window.location.origin);
+                if (crawlTaskState && crawlTaskState.task_id) {
+                    url.searchParams.set('task_id', crawlTaskState.task_id);
+                }
+
+                const response = await fetch(url.toString(), { cache: 'no-store' });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || '获取采集状态失败');
+                }
+
+                renderCrawlTask(data.task || null);
+            } catch (error) {
+                setCrawlButtonState(crawlTaskState);
+                if (!silent) {
+                    showMessage(`获取采集状态失败: ${error.message}`, 'error');
+                }
+            }
+        }
+
+        async function startCrawlTask() {
+            const searchInput = document.getElementById('searchInput');
+            const keywordText = searchInput ? searchInput.value.trim() : '';
+            if (!keywordText) {
+                showMessage('请输入要采集的关键词', 'error');
+                return;
+            }
+
+            if (crawlTaskState && ['queued', 'running', 'waiting_login'].includes(crawlTaskState.status)) {
+                showMessage('已有采集任务正在执行，请先等待当前任务完成', 'error');
+                return;
+            }
+
+            const crawlPlatform = document.getElementById('crawlPlatform');
+            const crawlMaxNotes = document.getElementById('crawlMaxNotes');
+            const platform = normalizeCrawlPlatform(crawlPlatform ? crawlPlatform.value : 'xhs');
+            const maxNotes = Math.max(1, parseInt(crawlMaxNotes ? crawlMaxNotes.value : '10', 10) || 10);
+
+            const crawlButton = document.getElementById('crawlButton');
+            if (crawlButton) {
+                crawlButton.disabled = true;
+                crawlButton.textContent = '准备采集...';
+            }
+
+            try {
+                const response = await fetch('/api/crawl/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        keywords: keywordText,
+                        platform,
+                        max_notes: maxNotes,
+                        login_type: 'qrcode',
+                        auto_analyze: false
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || '启动采集任务失败');
+                }
+
+                crawlRawSearchTriggeredForTaskId = null;
+                renderCrawlTask(data.task || null);
+                showMessage('采集任务已启动，首次登录可能需要扫码', 'success');
+            } catch (error) {
+                setCrawlButtonState(null);
+                showMessage(`启动采集任务失败: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkLlmConnectivity() {
+            const button = document.getElementById('checkLlmButton');
+            const defaultText = button ? (button.dataset.defaultText || button.textContent || '检查连通性') : '检查连通性';
+            if (button) {
+                button.dataset.defaultText = defaultText;
+                button.disabled = true;
+                button.textContent = '检查中...';
+            }
+            setConfigStatus('正在检查模型连通性...', '');
+
+            try {
+                const response = await fetch('/api/llm/check', { cache: 'no-store' });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.message || '模型连通性检查失败');
+                }
+
+                const lines = (data.results || []).map(item => {
+                    const prefix = item.success ? '正常' : '失败';
+                    const resolved = item.resolved_model ? ` -> ${item.resolved_model}` : '';
+                    return `${item.engine}: ${prefix}${resolved}\n${item.message}`;
+                });
+                const fullMessage = [data.message || '模型连通性检查完成', ...lines].join('\n\n');
+                setConfigStatus(fullMessage, data.success ? 'success' : 'error');
+                showMessage(data.message || '模型连通性检查完成', data.success ? 'success' : 'error');
+            } catch (error) {
+                const message = `模型连通性检查失败: ${error.message}`;
+                setConfigStatus(message, 'error');
+                showMessage(message, 'error');
+            } finally {
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = defaultText;
+                }
             }
         }
 

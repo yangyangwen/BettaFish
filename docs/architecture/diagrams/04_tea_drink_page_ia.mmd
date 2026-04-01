@@ -1,0 +1,38 @@
+flowchart TD
+    APP[茶饮经营情报平台]
+    APP --> DASH[总览 Dashboard]
+    APP --> SEARCH[原始搜索]
+    APP --> CRAWL[采集任务]
+    APP --> REPORT[情报报表]
+    APP --> DATA[数据资产]
+    APP --> SETTINGS[系统配置]
+
+    DASH --> D1[今日动态]
+    DASH --> D2[任务状态]
+    DASH --> D3[平台覆盖]
+    DASH --> D4[风险预警]
+
+    SEARCH --> S1[筛选栏]
+    SEARCH --> S2[结果列表]
+    SEARCH --> S3[详情抽屉]
+    SEARCH --> S4[加入报表]
+
+    CRAWL --> C1[创建任务]
+    CRAWL --> C2[二维码登录]
+    CRAWL --> C3[任务日志]
+    CRAWL --> C4[任务历史]
+
+    REPORT --> R1[报表模板]
+    REPORT --> R2[证据池]
+    REPORT --> R3[章节预览]
+    REPORT --> R4[导出中心]
+
+    DATA --> A1[来源表]
+    DATA --> A2[平台数据量]
+    DATA --> A3[关键词命中]
+    DATA --> A4[事件标签]
+
+    SETTINGS --> T1[平台账号]
+    SETTINGS --> T2[代理配置]
+    SETTINGS --> T3[调度配置]
+    SETTINGS --> T4[模型配置]

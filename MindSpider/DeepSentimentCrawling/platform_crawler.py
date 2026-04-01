@@ -213,9 +213,6 @@ postgres_db_config = {{
                     replaced = 'ENABLE_GET_COMMENTS = True'
                 elif line.startswith('CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = '):
                     replaced = 'CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = 20'
-                elif line.startswith('HEADLESS = '):
-                    replaced = 'HEADLESS = True'
-
                 if replaced is not None:
                     new_lines.append(replaced)
                     # 若原始行是多行赋值开头（以"("结尾），跳过后续续行
@@ -281,8 +278,7 @@ postgres_db_config = {{
                 "--platform", platform,
                 "--lt", login_type,
                 "--type", "search",
-                "--save_data_option", save_data_option,
-                "--headless", "false"
+                "--save_data_option", save_data_option
             ]
             
             logger.info(f"执行命令: {' '.join(cmd)}")

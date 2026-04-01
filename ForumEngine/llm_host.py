@@ -3,7 +3,6 @@
 使用硅基流动的Qwen3模型作为论坛主持人，引导多个agent进行讨论
 """
 
-from openai import OpenAI
 import sys
 import os
 from typing import List, Dict, Any, Optional
@@ -22,6 +21,7 @@ if utils_dir not in sys.path:
     sys.path.append(utils_dir)
 
 from utils.retry_helper import with_graceful_retry, SEARCH_API_RETRY_CONFIG
+from utils.openai_compat import create_chat_completion_with_fallback, create_openai_client
 
 
 class ForumHost:
@@ -45,7 +45,7 @@ class ForumHost:
 
         self.base_url = base_url or settings.FORUM_HOST_BASE_URL
 
-        self.client = OpenAI(
+        self.client = create_openai_client(
             api_key=self.api_key,
             base_url=self.base_url
         )
@@ -218,15 +218,19 @@ class ForumHost:
             else:
                 user_prompt = time_prefix
                 
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
+            response, resolved_model = create_chat_completion_with_fallback(
+                self.client,
+                self.model,
+                [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
+                base_url=self.base_url,
+                logger_prefix="Forum Host",
                 temperature=0.6,
                 top_p=0.9,
             )
+            self.model = resolved_model
 
             if response.choices:
                 content = response.choices[0].message.content

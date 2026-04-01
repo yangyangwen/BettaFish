@@ -1,0 +1,63 @@
+flowchart TD
+    U[运营/研究用户] --> FE[前端工作台]
+    FE --> API[统一业务 API]
+
+    subgraph DataSources[数据源层]
+        O1[官方公告 / 企业公号]
+        O2[新闻与行业资讯]
+        O3[社媒平台\n小红书/抖音/快手/B站/微博/知乎/贴吧]
+        O4[内部业务数据库\n可选]
+    end
+
+    subgraph Ingestion[采集与标准化层]
+        C1[爬虫采集服务]
+        C2[联网采集连接器]
+        C3[清洗去重]
+        C4[事件抽取与标签化]
+        C5[统一事实表 / 原文表 / 来源表]
+    end
+
+    subgraph Retrieval[结构化检索层]
+        R1[检索编排器]
+        R2[多源召回]
+        R3[时间 / 平台 / 主题过滤]
+        R4[证据聚合]
+    end
+
+    subgraph Report[报表生成层]
+        G1[固定 schema 报表引擎]
+        G2[经营情报主报告]
+        G3[消费端附录]
+    end
+
+    subgraph Output[输出层]
+        D1[可视化工作台]
+        D2[HTML / PDF 导出]
+        D3[结构化 JSON / API]
+    end
+
+    O1 --> C2
+    O2 --> C2
+    O3 --> C1
+    O4 --> C5
+
+    C1 --> C3
+    C2 --> C3
+    C3 --> C4
+    C4 --> C5
+
+    C5 --> R1
+    R1 --> R2
+    R2 --> R3
+    R3 --> R4
+
+    R4 --> G1
+    G1 --> G2
+    G1 --> G3
+
+    G2 --> D1
+    G3 --> D1
+    G2 --> D2
+    G3 --> D2
+    G1 --> D3
+

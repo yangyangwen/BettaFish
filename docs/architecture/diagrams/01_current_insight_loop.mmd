@@ -1,0 +1,21 @@
+flowchart TD
+    Q[研究主题] --> RS[ReportStructureNode]
+    RS --> P{逐段处理}
+
+    P --> FS[FirstSearchNode]
+    FS --> ST[选择检索工具]
+    ST --> DBQ[执行本地数据库查询]
+    DBQ --> FSUM[FirstSummaryNode]
+
+    FSUM --> R1{反思循环}
+    R1 --> RN[ReflectionNode]
+    RN --> RQ[再次选择工具并检索]
+    RQ --> RSUM[ReflectionSummaryNode]
+    RSUM --> R1
+
+    R1 -->|达到 MAX_REFLECTIONS| NEXT[下一个段落]
+    NEXT --> P
+
+    P -->|全部段落完成| RF[ReportFormattingNode]
+    RF --> OUT[Insight Agent 报告]
+

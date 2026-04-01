@@ -1,0 +1,22 @@
+flowchart TD
+    U[操作人 / 调度器] --> API[最小化 Crawl API]
+    API --> TASK[任务管理器]
+    TASK --> PC[PlatformCrawler]
+    PC --> CFG[写入 MediaCrawler 配置]
+    CFG --> MC[MediaCrawler Worker]
+    MC --> PW[Playwright / Chromium]
+    PW --> SITE[目标平台]
+    MC --> SESSION[(browser_data 登录态卷)]
+    MC --> DATA[(crawler_data 原始文件卷)]
+    MC --> DB[(PostgreSQL / MySQL)]
+
+    subgraph Optional[可选增强]
+        SCH[定时调度]
+        PROXY[代理池 / 代理提供商]
+        MQ[任务队列]
+    end
+
+    SCH --> API
+    PROXY --> MC
+    MQ --> TASK
+

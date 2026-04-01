@@ -1,0 +1,37 @@
+flowchart TD
+    subgraph Browser[用户访问]
+        FE[Web Frontend]
+    end
+
+    subgraph App[应用层]
+        API[Business API]
+        SCHED[Scheduler]
+        RWORK[Report Worker]
+        CWORK[Crawler Worker]
+    end
+
+    subgraph Infra[基础设施]
+        PG[(PostgreSQL)]
+        REDIS[(Redis)]
+        VOL1[(crawler_browser_data)]
+        VOL2[(crawler_data)]
+        VOL3[(reports)]
+        PROXY[Proxy Provider]
+    end
+
+    FE --> API
+    SCHED --> API
+    API --> PG
+    API --> REDIS
+    API --> CWORK
+    API --> RWORK
+
+    CWORK --> PG
+    CWORK --> VOL1
+    CWORK --> VOL2
+    CWORK --> PROXY
+
+    RWORK --> PG
+    RWORK --> REDIS
+    RWORK --> VOL3
+

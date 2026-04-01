@@ -94,6 +94,72 @@ class MediaCrawlerDB:
             logger.exception(f"数据库查询时发生错误: {e}")
             return []
 
+    def _is_postgresql(self) -> bool:
+        return (settings.DB_DIALECT or "mysql").lower() in {"postgresql", "postgres"}
+
+    def _like_operator(self) -> str:
+        return "ILIKE" if self._is_postgresql() else "LIKE"
+
+    def _numeric_sql(self, expression: str) -> str:
+        """返回兼容当前数据库方言的数值转换表达式。"""
+        if self._is_postgresql():
+            normalized = f"BTRIM(COALESCE(({expression})::text, ''))"
+            return (
+                "CASE "
+                f"WHEN {normalized} = '' THEN 0 "
+                f"WHEN {normalized} ~ '^-?[0-9]+([.][0-9]+)?$' "
+                f"THEN CAST(({expression}) AS DOUBLE PRECISION) "
+                "ELSE 0 END"
+            )
+        return f"COALESCE(CAST({expression} AS DECIMAL(20, 2)), 0)"
+
+    def _text_sql(self, expression: str) -> str:
+        if self._is_postgresql():
+            return f"CAST(({expression}) AS TEXT)"
+        return f"CAST({expression} AS CHAR)"
+
+    def _build_search_clause(self, fields: List[str], param_dict: Dict[str, Any], search_term: str) -> str:
+        clauses = []
+        operator = self._like_operator()
+        for idx, field in enumerate(fields):
+            pname = f"term_{idx}"
+            clauses.append(f"{self._wrap_query_field_with_dialect(field)} {operator} :{pname}")
+            param_dict[pname] = search_term
+        return " OR ".join(clauses)
+
+    def _build_time_clause(
+        self,
+        wrapped_time_col: str,
+        time_type: str,
+        start_dt: datetime,
+        end_dt: datetime,
+        param_dict: Dict[str, Any],
+    ) -> str:
+        if time_type == 'ms':
+            param_dict['start_time'] = int(start_dt.timestamp() * 1000)
+            param_dict['end_time'] = int(end_dt.timestamp() * 1000)
+            numeric_time = self._numeric_sql(wrapped_time_col)
+            return f"{numeric_time} >= :start_time AND {numeric_time} < :end_time"
+
+        if time_type in {'sec', 'sec_str'}:
+            param_dict['start_time'] = int(start_dt.timestamp())
+            param_dict['end_time'] = int(end_dt.timestamp())
+            numeric_time = self._numeric_sql(wrapped_time_col)
+            return f"{numeric_time} >= :start_time AND {numeric_time} < :end_time"
+
+        if time_type == 'date_str':
+            if self._is_postgresql():
+                param_dict['start_time'] = start_dt.date()
+                param_dict['end_time'] = end_dt.date()
+            else:
+                param_dict['start_time'] = start_dt.strftime('%Y-%m-%d')
+                param_dict['end_time'] = end_dt.strftime('%Y-%m-%d')
+            return f"{wrapped_time_col} >= :start_time AND {wrapped_time_col} < :end_time"
+
+        param_dict['start_time'] = start_dt.strftime('%Y-%m-%d %H:%M:%S')
+        param_dict['end_time'] = end_dt.strftime('%Y-%m-%d %H:%M:%S')
+        return f"{wrapped_time_col} >= :start_time AND {wrapped_time_col} < :end_time"
+
     @staticmethod
     def _to_datetime(ts: Any) -> Optional[datetime]:
         if not ts: return None
@@ -109,9 +175,24 @@ class MediaCrawlerDB:
 
     _table_columns_cache = {}
     def _get_table_columns(self, table_name: str) -> List[str]:
-        if table_name in self._table_columns_cache: return self._table_columns_cache[table_name]
-        results = self._execute_query(f"SHOW COLUMNS FROM `{table_name}`")
-        columns = [row['Field'] for row in results] if results else []
+        if table_name in self._table_columns_cache:
+            return self._table_columns_cache[table_name]
+
+        if self._is_postgresql():
+            results = self._execute_query(
+                """
+                SELECT column_name AS field
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = :table_name
+                ORDER BY ordinal_position
+                """,
+                {'table_name': table_name},
+            )
+            columns = [row['field'] for row in results] if results else []
+        else:
+            results = self._execute_query(f"SHOW COLUMNS FROM `{table_name}`")
+            columns = [row['Field'] for row in results] if results else []
+
         self._table_columns_cache[table_name] = columns
         return columns
 
@@ -147,46 +228,111 @@ class MediaCrawlerDB:
         
         now = datetime.now()
         start_time = now - timedelta(days={'24h': 1, 'week': 7}.get(time_period, 365))
+        quote = self._wrap_query_field_with_dialect
+        num = lambda field_name: self._numeric_sql(quote(field_name))
 
         # 定义各平台的热度计算SQL片段
         hotness_formulas = {
-            'bilibili_video': f"(COALESCE(CAST(liked_count AS UNSIGNED), 0) * {self.W_LIKE} + COALESCE(CAST(video_comment AS UNSIGNED), 0) * {self.W_COMMENT} + COALESCE(CAST(video_share_count AS UNSIGNED), 0) * {self.W_SHARE} + COALESCE(CAST(video_favorite_count AS UNSIGNED), 0) * {self.W_SHARE} + COALESCE(CAST(video_coin_count AS UNSIGNED), 0) * {self.W_SHARE} + COALESCE(CAST(video_danmaku AS UNSIGNED), 0) * {self.W_DANMAKU} + COALESCE(CAST(video_play_count AS DECIMAL(20,2)), 0) * {self.W_VIEW})",
-            'douyin_aweme':   f"(COALESCE(CAST(liked_count AS UNSIGNED), 0) * {self.W_LIKE} + COALESCE(CAST(comment_count AS UNSIGNED), 0) * {self.W_COMMENT} + COALESCE(CAST(share_count AS UNSIGNED), 0) * {self.W_SHARE} + COALESCE(CAST(collected_count AS UNSIGNED), 0) * {self.W_SHARE})",
-            'weibo_note':     f"(COALESCE(CAST(liked_count AS UNSIGNED), 0) * {self.W_LIKE} + COALESCE(CAST(comments_count AS UNSIGNED), 0) * {self.W_COMMENT} + COALESCE(CAST(shared_count AS UNSIGNED), 0) * {self.W_SHARE})",
-            'xhs_note':       f"(COALESCE(CAST(liked_count AS UNSIGNED), 0) * {self.W_LIKE} + COALESCE(CAST(comment_count AS UNSIGNED), 0) * {self.W_COMMENT} + COALESCE(CAST(share_count AS UNSIGNED), 0) * {self.W_SHARE} + COALESCE(CAST(collected_count AS UNSIGNED), 0) * {self.W_SHARE})",
-            'kuaishou_video': f"(COALESCE(CAST(liked_count AS UNSIGNED), 0) * {self.W_LIKE} + COALESCE(CAST(viewd_count AS DECIMAL(20,2)), 0) * {self.W_VIEW})",
-            'zhihu_content':  f"(COALESCE(CAST(voteup_count AS UNSIGNED), 0) * {self.W_LIKE} + COALESCE(CAST(comment_count AS UNSIGNED), 0) * {self.W_COMMENT})",
+            'bilibili_video': (
+                f"({num('liked_count')} * {self.W_LIKE} + "
+                f"{num('video_comment')} * {self.W_COMMENT} + "
+                f"{num('video_share_count')} * {self.W_SHARE} + "
+                f"{num('video_favorite_count')} * {self.W_SHARE} + "
+                f"{num('video_coin_count')} * {self.W_SHARE} + "
+                f"{num('video_danmaku')} * {self.W_DANMAKU} + "
+                f"{num('video_play_count')} * {self.W_VIEW})"
+            ),
+            'douyin_aweme': (
+                f"({num('liked_count')} * {self.W_LIKE} + "
+                f"{num('comment_count')} * {self.W_COMMENT} + "
+                f"{num('share_count')} * {self.W_SHARE} + "
+                f"{num('collected_count')} * {self.W_SHARE})"
+            ),
+            'weibo_note': (
+                f"({num('liked_count')} * {self.W_LIKE} + "
+                f"{num('comments_count')} * {self.W_COMMENT} + "
+                f"{num('shared_count')} * {self.W_SHARE})"
+            ),
+            'xhs_note': (
+                f"({num('liked_count')} * {self.W_LIKE} + "
+                f"{num('comment_count')} * {self.W_COMMENT} + "
+                f"{num('share_count')} * {self.W_SHARE} + "
+                f"{num('collected_count')} * {self.W_SHARE})"
+            ),
+            'kuaishou_video': (
+                f"({num('liked_count')} * {self.W_LIKE} + "
+                f"{num('viewd_count')} * {self.W_VIEW})"
+            ),
+            'zhihu_content': (
+                f"({num('voteup_count')} * {self.W_LIKE} + "
+                f"{num('comment_count')} * {self.W_COMMENT})"
+            ),
         }
 
-        all_queries, params = [], []
-        for table, formula in hotness_formulas.items():
-            time_filter_sql, time_filter_param = "", None
-            if table == 'weibo_note': time_filter_sql, time_filter_param = "`create_date_time` >= %s", start_time.strftime('%Y-%m-%d %H:%M:%S')
-            elif table in ['kuaishou_video', 'xhs_note', 'douyin_aweme']: time_col = 'time' if table == 'xhs_note' else 'create_time'; time_filter_sql, time_filter_param = f"`{time_col}` >= %s", str(int(start_time.timestamp() * 1000))
-            elif table == 'zhihu_content': time_filter_sql, time_filter_param = "CAST(`created_time` AS UNSIGNED) >= %s", str(int(start_time.timestamp()))
-            else: time_filter_sql, time_filter_param = "`create_time` >= %s", str(int(start_time.timestamp()))
+        all_queries, param_dict = [], {}
+        for idx, (table, formula) in enumerate(hotness_formulas.items()):
+            time_param_name = f"start_time_{idx}"
+            time_col = 'create_time'
+            if table == 'weibo_note':
+                wrapped_time_col = quote('create_date_time')
+                param_dict[time_param_name] = start_time.strftime('%Y-%m-%d %H:%M:%S')
+                time_filter_sql = f"{wrapped_time_col} >= :{time_param_name}"
+            elif table in ['kuaishou_video', 'xhs_note', 'douyin_aweme']:
+                time_col = 'time' if table == 'xhs_note' else 'create_time'
+                wrapped_time_col = quote(time_col)
+                param_dict[time_param_name] = int(start_time.timestamp() * 1000)
+                time_filter_sql = f"{self._numeric_sql(wrapped_time_col)} >= :{time_param_name}"
+            elif table == 'zhihu_content':
+                time_col = 'created_time'
+                wrapped_time_col = quote(time_col)
+                param_dict[time_param_name] = int(start_time.timestamp())
+                time_filter_sql = f"{self._numeric_sql(wrapped_time_col)} >= :{time_param_name}"
+            else:
+                wrapped_time_col = quote(time_col)
+                param_dict[time_param_name] = int(start_time.timestamp())
+                time_filter_sql = f"{self._numeric_sql(wrapped_time_col)} >= :{time_param_name}"
 
             content_type = 'note' if table in ['weibo_note', 'xhs_note'] else 'content' if table == 'zhihu_content' else 'video'
-            query_template = "SELECT '{platform}' as p, '{type}' as t, {title} as title, {author} as author, {url} as url, {ts} as ts, {formula} as hotness_score, source_keyword, '{tbl}' as tbl FROM `{tbl}` WHERE {time_filter}"
+            query_template = (
+                "SELECT '{platform}' as p, '{type}' as t, {title} as title, {author} as author, "
+                "{url} as url, {ts} as ts, {formula} as hotness_score, {source_keyword} as source_keyword, "
+                "'{tbl}' as tbl FROM {table} WHERE {time_filter}"
+            )
             
-            field_subs = {'platform': table.split('_')[0], 'type': content_type, 'title': 'title', 'author': 'nickname', 'url': 'video_url', 'ts': 'create_time', 'formula': formula, 'tbl': table, 'time_filter': time_filter_sql}
-            if table == 'weibo_note': field_subs.update({'title': 'content', 'url': 'note_url', 'ts': 'create_date_time'})
-            elif table == 'xhs_note': field_subs.update({'ts': 'time', 'url': 'note_url'})
-            elif table == 'zhihu_content': field_subs.update({'author': 'user_nickname', 'url': 'content_url', 'ts': 'created_time'})
-            elif table == 'douyin_aweme': field_subs.update({'url': 'aweme_url'})
+            field_subs = {
+                'platform': table.split('_')[0],
+                'type': content_type,
+                'title': quote('title'),
+                'author': quote('nickname'),
+                'url': quote('video_url'),
+                'ts': self._text_sql(quote(time_col)),
+                'formula': formula,
+                'source_keyword': quote('source_keyword'),
+                'tbl': table,
+                'table': quote(table),
+                'time_filter': time_filter_sql,
+            }
+            if table == 'weibo_note':
+                field_subs.update({'title': quote('content'), 'url': quote('note_url'), 'ts': self._text_sql(quote('create_date_time'))})
+            elif table == 'xhs_note':
+                field_subs.update({'ts': self._text_sql(quote('time')), 'url': quote('note_url')})
+            elif table == 'zhihu_content':
+                field_subs.update({'author': quote('user_nickname'), 'url': quote('content_url'), 'ts': self._text_sql(quote('created_time'))})
+            elif table == 'douyin_aweme':
+                field_subs.update({'url': quote('aweme_url')})
 
             all_queries.append(query_template.format(**field_subs))
-            params.append(time_filter_param)
-        
-        final_query = f"({' ) UNION ALL ( '.join(all_queries)}) ORDER BY hotness_score DESC LIMIT %s"
-        raw_results = self._execute_query(final_query, tuple(params) + (limit,))
+        param_dict['limit'] = limit
+
+        final_query = f"({' ) UNION ALL ( '.join(all_queries)}) ORDER BY hotness_score DESC LIMIT :limit"
+        raw_results = self._execute_query(final_query, param_dict)
 
         formatted_results = [QueryResult(platform=r['p'], content_type=r['t'], title_or_content=r['title'], author_nickname=r.get('author'), url=r['url'], publish_time=self._to_datetime(r['ts']), engagement=self._extract_engagement(r), hotness_score=r.get('hotness_score', 0.0), source_keyword=r.get('source_keyword'), source_table=r['tbl']) for r in raw_results]
         return DBResponse("search_hot_content", params_for_log, results=formatted_results, results_count=len(formatted_results))    
 
     def _wrap_query_field_with_dialect(self, field: str) -> str:
         """根据数据库方言包装SQL查询"""
-        if settings.DB_DIALECT == 'postgresql':
+        if self._is_postgresql():
             return f'"{field}"'
         return f'`{field}`'
 
@@ -209,13 +355,8 @@ class MediaCrawlerDB:
         
         for table, config in search_configs.items():
             param_dict = {}
-            where_clauses = []
-            for idx, field in enumerate(config['fields']):
-                pname = f"term_{idx}"
-                where_clauses.append(f'{self._wrap_query_field_with_dialect(field)} LIKE :{pname}')
-                param_dict[pname] = search_term
+            where_clause = self._build_search_clause(config['fields'], param_dict, search_term)
             param_dict['limit'] = limit_per_table
-            where_clause = " OR ".join(where_clauses)
             query = f'SELECT * FROM {self._wrap_query_field_with_dialect(table)} WHERE {where_clause} ORDER BY id DESC LIMIT :limit'
             raw_results = self._execute_query(query, param_dict)
             for row in raw_results:
@@ -264,14 +405,14 @@ class MediaCrawlerDB:
 
         for table, config in search_configs.items():
             param_dict = {}
-            where_clauses = []
-            for idx, field in enumerate(config['fields']):
-                pname = f"term_{idx}"
-                where_clauses.append(f'{self._wrap_query_field_with_dialect(field)} LIKE :{pname}')
-                param_dict[pname] = search_term
+            topic_clause = self._build_search_clause(config['fields'], param_dict, search_term)
+            time_col = self._wrap_query_field_with_dialect(config['time_col'])
+            time_clause = self._build_time_clause(time_col, config['time_type'], start_dt, end_dt, param_dict)
             param_dict['limit'] = limit_per_table
-            where_clause = ' OR '.join(where_clauses)
-            query = f'SELECT * FROM {self._wrap_query_field_with_dialect(table)} WHERE {where_clause} ORDER BY id DESC LIMIT :limit'
+            query = (
+                f'SELECT * FROM {self._wrap_query_field_with_dialect(table)} '
+                f'WHERE ({topic_clause}) AND ({time_clause}) ORDER BY id DESC LIMIT :limit'
+            )
             raw_results = self._execute_query(query, param_dict)
             for row in raw_results:
                 content = (row.get('title') or row.get('content') or row.get('desc') or row.get('content_text', ''))
@@ -286,6 +427,7 @@ class MediaCrawlerDB:
                     source_keyword=row.get('source_keyword'),
                     source_table=table
                 ))
+        all_results.sort(key=lambda item: item.publish_time or datetime.min, reverse=True)
         return DBResponse("search_topic_by_date", params_for_log, results=all_results, results_count=len(all_results))
         
     def get_comments_for_topic(self, topic: str, limit: int = 500) -> DBResponse:
@@ -306,23 +448,32 @@ class MediaCrawlerDB:
         comment_tables = ['bilibili_video_comment', 'douyin_aweme_comment', 'kuaishou_video_comment', 'weibo_note_comment', 'xhs_note_comment', 'zhihu_comment', 'tieba_comment']
         
         all_queries = []
+        param_dict: Dict[str, Any] = {}
         for table in comment_tables:
             cols = self._get_table_columns(table)
-            author_col = 'user_nickname' if 'user_nickname' in cols else 'nickname'
+            author_col = 'user_nickname' if 'user_nickname' in cols else 'nickname' if 'nickname' in cols else 'user_name'
             like_col = 'comment_like_count' if 'comment_like_count' in cols else 'like_count' if 'like_count' in cols else None
             time_col = 'publish_time' if 'publish_time' in cols else 'create_date_time' if 'create_date_time' in cols else 'create_time'
-            like_select = f"`{like_col}` as likes" if like_col else "'0' as likes"
+            like_select = self._text_sql(self._wrap_query_field_with_dialect(like_col)) if like_col else "'0'"
+            content_col = self._wrap_query_field_with_dialect('content')
+            search_param_name = f"search_term_{len(all_queries)}"
+            param_dict[search_param_name] = search_term
             
-            query = (f"SELECT '{table.split('_')[0]}' as platform, `content`, `{author_col}` as author, "
-                     f"`{time_col}` as ts, {like_select}, '{table}' as source_table "
-                     f"FROM `{table}` WHERE `content` LIKE %s")
+            query = (
+                f"SELECT '{table.split('_')[0]}' as platform, {content_col} as content, "
+                f"{self._wrap_query_field_with_dialect(author_col)} as author, "
+                f"{self._text_sql(self._wrap_query_field_with_dialect(time_col))} as ts, {like_select} as likes, '{table}' as source_table "
+                f"FROM {self._wrap_query_field_with_dialect(table)} "
+                f"WHERE {content_col} {self._like_operator()} :{search_param_name}"
+            )
             all_queries.append(query)
 
-        final_query = f"({' ) UNION ALL ( '.join(all_queries)}) ORDER BY ts DESC LIMIT %s"
-        params = (search_term,) * len(comment_tables) + (limit,)
-        raw_results = self._execute_query(final_query, params)
+        final_query = f"({' ) UNION ALL ( '.join(all_queries)}) ORDER BY ts DESC LIMIT :limit"
+        param_dict['limit'] = limit
+        raw_results = self._execute_query(final_query, param_dict)
         
         formatted = [QueryResult(platform=r['platform'], content_type='comment', title_or_content=r['content'], author_nickname=r['author'], publish_time=self._to_datetime(r['ts']), engagement={'likes': int(r['likes']) if str(r['likes']).isdigit() else 0}, source_table=r['source_table']) for r in raw_results]
+        formatted.sort(key=lambda item: item.publish_time or datetime.min, reverse=True)
         return DBResponse("get_comments_for_topic", params_for_log, results=formatted, results_count=len(formatted))
 
     def search_topic_on_platform(
@@ -356,8 +507,6 @@ class MediaCrawlerDB:
 
         search_term, all_results = f"%{topic}%", []
         platform_configs = all_configs[platform]
-
-        time_clause, time_params_tuple = "", ()
         if start_date and end_date:
             try:
                 start_dt, end_dt = datetime.strptime(start_date, '%Y-%m-%d'), datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
@@ -368,32 +517,25 @@ class MediaCrawlerDB:
 
         for config in platform_configs:
             table = config['table']
-            topic_clause = " OR ".join([f"`{field}` LIKE %s" for field in config['fields']])
-            query = f"SELECT * FROM `{table}` WHERE {topic_clause}"
-            params = [search_term] * len(config['fields'])
+            param_dict = {}
+            topic_clause = self._build_search_clause(config['fields'], param_dict, search_term)
+            query = f"SELECT * FROM {self._wrap_query_field_with_dialect(table)} WHERE ({topic_clause})"
 
             if start_dt and end_dt and 'time_col' in config:
-                time_col, time_type = config['time_col'], config['time_type']
-                if time_type == 'sec': t_params = (int(start_dt.timestamp()), int(end_dt.timestamp()))
-                elif time_type == 'ms': t_params = (int(start_dt.timestamp() * 1000), int(end_dt.timestamp() * 1000))
-                elif time_type in ['str', 'date_str']: t_params = (start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d'))
-                else: t_params = (str(int(start_dt.timestamp())), str(int(end_dt.timestamp())))
-                
-                t_clause = f"`{time_col}` >= %s AND `{time_col}` < %s"
-                if table == 'zhihu_content': t_clause = f"CAST(`{time_col}` AS UNSIGNED) >= %s AND CAST(`{time_col}` AS UNSIGNED) < %s"
-                
+                time_col = config['time_col']
+                wrapped_time_col = self._wrap_query_field_with_dialect(time_col)
+                t_clause = self._build_time_clause(wrapped_time_col, config['time_type'], start_dt, end_dt, param_dict)
                 query += f" AND ({t_clause})"
-                params.extend(t_params)
 
-            query += f" ORDER BY id DESC LIMIT %s"
-            params.append(limit)
+            query += " ORDER BY id DESC LIMIT :limit"
+            param_dict['limit'] = limit
 
-            raw_results = self._execute_query(query, tuple(params))
+            raw_results = self._execute_query(query, param_dict)
             for row in raw_results:
                 content = (row.get('title') or row.get('content') or row.get('desc') or row.get('content_text', ''))
                 time_key = config.get('time_col') and row.get(config.get('time_col'))
                 all_results.append(QueryResult(platform=platform, content_type=config['type'], title_or_content=content if content else '', author_nickname=row.get('nickname') or row.get('user_nickname'), url=row.get('video_url') or row.get('note_url') or row.get('content_url') or row.get('url') or row.get('aweme_url'), publish_time=self._to_datetime(time_key), engagement=self._extract_engagement(row), source_keyword=row.get('source_keyword'), source_table=table))
-        
+        all_results.sort(key=lambda item: item.publish_time or datetime.min, reverse=True)
         return DBResponse("search_topic_on_platform", params_for_log, results=all_results, results_count=len(all_results))
 
 # --- 3. 测试与使用示例 ---
